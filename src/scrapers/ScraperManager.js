@@ -19,12 +19,31 @@ class ScraperManager {
     this.commentGenerator = new CommentGeneratorService();
   }
 
-  /**
-   * Scrape single post from each platform for all communities
-   */
+  // --- helpers --------------------------------------------------------------
+
+  _toUnixSeconds(date) {
+    return Math.floor(new Date(date).getTime() / 1000);
+  }
+
+  async filterNewContent(items, platform) {
+    if (!Array.isArray(items) || items.length === 0) return [];
+    const results = await Promise.all(
+      items.map(async (c) => {
+        const exists = await Post.exists({
+          $or: [{ platform, originalId: c.id }, { sourceUrl: c.url }],
+        });
+        const isSticky = c?.stickied === true || c?.pinned === true;
+        return { item: c, keep: !exists && !isSticky };
+      })
+    );
+    return results.filter((r) => r.keep).map((r) => r.item);
+  }
+
+  // --- entrypoints ----------------------------------------------------------
+
   async scrapeSinglePostFromAllCommunities() {
     try {
-      console.log("Starting single post scraping for all communities...");
+      console.log("🔁 Starting single post scraping for all communities...");
 
       const activeCommunities = await Community.find({
         isActive: true,
@@ -48,7 +67,7 @@ class ScraperManager {
           results.totalPostsCreated += communityResult.postsCreated;
 
           console.log(
-            `Ô£à Successfully scraped ${community.name}: ${communityResult.postsCreated} posts`
+            `✅ Successfully scraped ${community.name}: ${communityResult.postsCreated} post(s)`
           );
         } catch (error) {
           results.failedScrapes++;
@@ -56,28 +75,24 @@ class ScraperManager {
             community: community.name,
             error: error.message,
           });
-
           console.error(
-            `ÔØî Failed to scrape ${community.name}:`,
+            `❌ Failed to scrape ${community.name}:`,
             error.message
           );
         }
       }
 
-      console.log("Scraping completed:", results);
+      console.log("📊 Scraping completed:", results);
       return results;
     } catch (error) {
-      console.error("Error in scrapeAllCommunities:", error);
+      console.error("❌ Error in scrapeSinglePostFromAllCommunities:", error);
       throw error;
     }
   }
 
-  /**
-   * Scrape bulk content for all communities (manual trigger only)
-   */
   async scrapeAllCommunities() {
     try {
-      console.log("Starting bulk scraping for all communities...");
+      console.log("🔁 Starting bulk scraping for all communities...");
 
       const activeCommunities = await Community.find({
         isActive: true,
@@ -99,7 +114,7 @@ class ScraperManager {
           results.totalPostsCreated += communityResult.postsCreated;
 
           console.log(
-            `Ô£à Successfully scraped ${community.name}: ${communityResult.postsCreated} posts`
+            `✅ Successfully scraped ${community.name}: ${communityResult.postsCreated} post(s)`
           );
         } catch (error) {
           results.failedScrapes++;
@@ -107,38 +122,36 @@ class ScraperManager {
             community: community.name,
             error: error.message,
           });
-
           console.error(
-            `ÔØî Failed to scrape ${community.name}:`,
+            `❌ Failed to scrape ${community.name}:`,
             error.message
           );
         }
       }
 
-      console.log("Bulk scraping completed:", results);
+      console.log("📊 Bulk scraping completed:", results);
       return results;
     } catch (error) {
-      console.error("Error in bulk scraping:", error);
+      console.error("❌ Error in bulk scraping:", error);
       throw error;
     }
   }
 
-  /**
-   * Scrape single post per platform for a community
-   */
+  // --- community-level ------------------------------------------------------
+
   async scrapeSinglePostPerPlatform(communityId) {
     try {
       const community = await Community.findById(communityId);
-      if (!community) {
-        throw new Error("Community not found");
-      }
+      if (!community) throw new Error("Community not found");
 
-      console.log(`Scraping single post per platform for: ${community.name}`);
+      console.log(
+        `🔎 Scraping single post per platform for: ${community.name}`
+      );
 
       let totalPostsCreated = 0;
       const platformResults = [];
 
-      // Get platform users for assignment
+      // Platform users
       const platformUsers = await User.find({ userType: "platform" }).select(
         "_id"
       );
@@ -146,7 +159,6 @@ class ScraperManager {
         throw new Error("No platform users found for post assignment");
       }
 
-      // Scrape 1 post from each active platform
       for (const platformConfig of community.scrapingPlatforms) {
         if (!platformConfig.isActive) continue;
         if (platformConfig.platform !== "reddit") continue;
@@ -155,33 +167,47 @@ class ScraperManager {
           const scraper = this.scrapers[platformConfig.platform];
           if (!scraper) {
             console.warn(
-              `No scraper available for platform: ${platformConfig.platform}`
+              `⚠️ No scraper available for platform: ${platformConfig.platform}`
             );
             continue;
           }
 
           console.log(
-            `Scraping 1 post from ${platformConfig.platform} for ${community.name}...`
+            `🧪 Scraping 1 post from ${platformConfig.platform} for ${community.name}...`
           );
+
+          const since = community.lastScrapedAt
+            ? this._toUnixSeconds(community.lastScrapedAt)
+            : undefined;
 
           const scrapedContent = await scraper.scrapeContent({
             sourceUrl: platformConfig.sourceUrl,
             keywords: platformConfig.keywords,
-            maxPosts: 1, // Only 1 post per platform
+            maxPosts: 5, // fetch a few, then filter to 1
+            sort: "new",
+            excludeStickied: true,
+            minCreatedUtc: since,
           });
 
-          // Process and create posts
-          const postsCreated = await this.createPostsFromScrapedContent(
-            scrapedContent,
+          const newOnly = (
+            await this.filterNewContent(scrapedContent, platformConfig.platform)
+          ).slice(0, 1); // keep a single new post
+
+          const {
+            postsCreated,
+            createdItems,
+            skippedExisting,
+            skippedLowQuality,
+          } = await this.createPostsFromScrapedContent(
+            newOnly,
             community,
             platformConfig.platform,
             platformUsers
           );
 
-          // Generate AI comments for created posts
-          if (postsCreated > 0) {
+          if (createdItems.length > 0) {
             await this.generateCommentsForCreatedPosts(
-              scrapedContent.slice(0, postsCreated),
+              createdItems,
               platformConfig.platform
             );
           }
@@ -190,23 +216,36 @@ class ScraperManager {
           platformResults.push({
             platform: platformConfig.platform,
             postsCreated,
+            skippedExisting,
+            skippedLowQuality,
             success: true,
           });
+
+          const summaryBits = [];
+          if (postsCreated) summaryBits.push(`created: ${postsCreated}`);
+          if (skippedExisting) summaryBits.push(`existing: ${skippedExisting}`);
+          if (skippedLowQuality)
+            summaryBits.push(`lowQuality: ${skippedLowQuality}`);
+          console.log(
+            `✅ ${platformConfig.platform} summary → ${summaryBits.join(", ") || "none"}`
+          );
         } catch (platformError) {
           console.error(
-            `Error scraping ${platformConfig.platform}:`,
+            `❌ Error scraping ${platformConfig.platform}:`,
             platformError.message
           );
           platformResults.push({
             platform: platformConfig.platform,
             postsCreated: 0,
+            skippedExisting: 0,
+            skippedLowQuality: 0,
             success: false,
             error: platformError.message,
           });
         }
       }
 
-      // Update community's last scraped timestamp
+      // Update lastScrapedAt & counters
       await Community.findByIdAndUpdate(communityId, {
         lastScrapedAt: new Date(),
         $inc: { postCount: totalPostsCreated },
@@ -220,29 +259,23 @@ class ScraperManager {
       };
     } catch (error) {
       console.error(
-        `Error scraping single posts for community ${communityId}:`,
+        `❌ Error scraping single posts for community ${communityId}:`,
         error
       );
       throw error;
     }
   }
 
-  /**
-   * Scrape content for a specific community
-   */
   async scrapeCommunity(communityId) {
     try {
       const community = await Community.findById(communityId);
-      if (!community) {
-        throw new Error("Community not found");
-      }
+      if (!community) throw new Error("Community not found");
 
-      console.log(`Scraping community: ${community.name}`);
+      console.log(`🔎 Scraping community: ${community.name}`);
 
       let totalPostsCreated = 0;
       const platformResults = [];
 
-      // Get platform users for assignment
       const platformUsers = await User.find({ userType: "platform" }).select(
         "_id"
       );
@@ -250,7 +283,6 @@ class ScraperManager {
         throw new Error("No platform users found for post assignment");
       }
 
-      // Scrape from each active platform
       for (const platformConfig of community.scrapingPlatforms) {
         if (!platformConfig.isActive) continue;
         if (platformConfig.platform !== "reddit") continue;
@@ -259,33 +291,48 @@ class ScraperManager {
           const scraper = this.scrapers[platformConfig.platform];
           if (!scraper) {
             console.warn(
-              `No scraper available for platform: ${platformConfig.platform}`
+              `⚠️ No scraper available for platform: ${platformConfig.platform}`
             );
             continue;
           }
 
           console.log(
-            `Scraping ${platformConfig.platform} for ${community.name}...`
+            `🧪 Scraping ${platformConfig.platform} for ${community.name}...`
           );
+
+          const since = community.lastScrapedAt
+            ? this._toUnixSeconds(community.lastScrapedAt)
+            : undefined;
 
           const scrapedContent = await scraper.scrapeContent({
             sourceUrl: platformConfig.sourceUrl,
             keywords: platformConfig.keywords,
-            maxPosts: community.scrapingConfig.maxPostsPerScrape || 50,
+            maxPosts: community.scrapingConfig?.maxPostsPerScrape || 50,
+            sort: "new",
+            excludeStickied: true,
+            minCreatedUtc: since,
           });
 
-          // Process and create posts
-          const postsCreated = await this.createPostsFromScrapedContent(
+          const newOnly = await this.filterNewContent(
             scrapedContent,
+            platformConfig.platform
+          );
+
+          const {
+            postsCreated,
+            createdItems,
+            skippedExisting,
+            skippedLowQuality,
+          } = await this.createPostsFromScrapedContent(
+            newOnly,
             community,
             platformConfig.platform,
             platformUsers
           );
 
-          // Generate AI comments for created posts
-          if (postsCreated > 0) {
+          if (createdItems.length > 0) {
             await this.generateCommentsForCreatedPosts(
-              scrapedContent.slice(0, postsCreated),
+              createdItems,
               platformConfig.platform
             );
           }
@@ -294,23 +341,35 @@ class ScraperManager {
           platformResults.push({
             platform: platformConfig.platform,
             postsCreated,
+            skippedExisting,
+            skippedLowQuality,
             success: true,
           });
+
+          const summaryBits = [];
+          if (postsCreated) summaryBits.push(`created: ${postsCreated}`);
+          if (skippedExisting) summaryBits.push(`existing: ${skippedExisting}`);
+          if (skippedLowQuality)
+            summaryBits.push(`lowQuality: ${skippedLowQuality}`);
+          console.log(
+            `✅ ${platformConfig.platform} summary → ${summaryBits.join(", ") || "none"}`
+          );
         } catch (platformError) {
           console.error(
-            `Error scraping ${platformConfig.platform}:`,
+            `❌ Error scraping ${platformConfig.platform}:`,
             platformError.message
           );
           platformResults.push({
             platform: platformConfig.platform,
             postsCreated: 0,
+            skippedExisting: 0,
+            skippedLowQuality: 0,
             success: false,
             error: platformError.message,
           });
         }
       }
 
-      // Update community's last scraped timestamp
       await Community.findByIdAndUpdate(communityId, {
         lastScrapedAt: new Date(),
         $inc: { postCount: totalPostsCreated },
@@ -323,78 +382,70 @@ class ScraperManager {
         platformResults,
       };
     } catch (error) {
-      console.error(`Error scraping community ${communityId}:`, error);
+      console.error(`❌ Error scraping community ${communityId}:`, error);
       throw error;
     }
   }
 
-  /**
-   * Generate AI comments for created posts
-   */
-  async generateCommentsForCreatedPosts(scrapedContent, platform) {
+  // --- comments -------------------------------------------------------------
+
+  async generateCommentsForCreatedPosts(createdItems, platform) {
     try {
       if (!process.env.OPENAI_API_KEY) {
         console.log(
-          "OpenAI API key not configured, skipping comment generation"
+          "⚠️ OpenAI API key not configured, skipping comment generation"
         );
         return;
       }
 
-      for (const content of scrapedContent) {
+      for (const content of createdItems) {
         try {
-          // Find the created post
           const post = await Post.findOne({
             platform: platform,
             originalId: content.id,
           });
 
           if (!post) {
-            console.log(`Post not found for comment generation: ${content.id}`);
+            console.log(
+              `⏭️ Post not found for comment generation: ${content.id}`
+            );
             continue;
           }
 
-          // Generate 10-15 AI comments for this post
-          const commentCount = Math.floor(Math.random() * 6) + 10; // 10-15 comments
+          const commentCount = Math.floor(Math.random() * 6) + 10; // 10–15
           await this.commentGenerator.generateCommentsForPost(
             post._id,
             commentCount
           );
 
           console.log(
-            `Ô£à Generated AI comments for post: ${post.title.substring(0, 30)}...`
+            `✅ Generated AI comments for post: ${post.title.substring(0, 30)}...`
           );
-
-          // Add delay to avoid overwhelming the API
           await this.utils.delay(2000);
         } catch (error) {
           console.error(
-            `Error generating comments for post ${content.id}:`,
+            `❌ Error generating comments for post ${content.id}:`,
             error.message
           );
         }
       }
     } catch (error) {
-      console.error(`Error in comment generation process:`, error.message);
+      console.error(`❌ Error in comment generation process:`, error.message);
     }
   }
 
-  /**
-   * Scrape authentic content for a specific community
-   * Ensures only original, non-promotional content is collected
-   */
+  // --- authenticity path (kept, logs fixed, uses createdItems) --------------
+
   async scrapeAuthenticContent(communityId, postsPerPlatform = 2) {
     try {
       const community = await Community.findById(communityId);
-      if (!community) {
-        throw new Error("Community not found");
-      }
+      if (!community) throw new Error("Community not found");
 
-      console.log(`­ƒöì Scraping authentic content for: ${community.name}`);
+      console.log(`🔍 Scraping authentic content for: ${community.name}`);
 
       let totalPostsCreated = 0;
       const platformResults = [];
 
-      // Get platform users for assignment
       const platformUsers = await User.find({ userType: "platform" }).select(
         "_id"
       );
@@ -402,7 +453,6 @@ class ScraperManager {
         throw new Error("No platform users found for post assignment");
       }
 
-      // Scrape from each active platform
       for (const platformConfig of community.scrapingPlatforms) {
         if (!platformConfig.isActive) continue;
         if (platformConfig.platform !== "reddit") continue;
@@ -411,42 +461,45 @@ class ScraperManager {
           const scraper = this.scrapers[platformConfig.platform];
           if (!scraper) {
             console.warn(
-              `No scraper available for platform: ${platformConfig.platform}`
+              `⚠️ No scraper available for platform: ${platformConfig.platform}`
             );
             continue;
           }
 
           console.log(
-            `­ƒÄ» Scraping ${postsPerPlatform} authentic posts from ${platformConfig.platform}...`
+            `🧪 Scraping ${postsPerPlatform} authentic posts from ${platformConfig.platform}...`
           );
 
-          // Scrape with authenticity focus
           const scrapedContent = await scraper.scrapeContent({
             sourceUrl: platformConfig.sourceUrl,
             keywords: platformConfig.keywords,
-            maxPosts: postsPerPlatform * 3, // Get more to filter for authenticity
+            maxPosts: postsPerPlatform * 3,
             authenticityMode: true,
+            sort: "new",
+            excludeStickied: true,
           });
 
-          // Validate and filter authentic content
           const authenticContent = await this.validateAuthenticContent(
             scrapedContent,
             community,
             postsPerPlatform
           );
 
-          // Create posts from authentic content
-          const postsCreated = await this.createPostsFromAuthenticContent(
+          const {
+            postsCreated,
+            createdItems,
+            skippedExisting,
+            skippedLowQuality,
+          } = await this.createPostsFromAuthenticContent(
             authenticContent,
             community,
             platformConfig.platform,
             platformUsers
           );
 
-          // Generate AI comments for created posts
-          if (postsCreated > 0) {
+          if (createdItems.length > 0) {
             await this.generateCommentsForCreatedPosts(
-              authenticContent.slice(0, postsCreated),
+              createdItems,
               platformConfig.platform
             );
           }
@@ -455,23 +508,30 @@ class ScraperManager {
           platformResults.push({
             platform: platformConfig.platform,
             postsCreated,
+            skippedExisting,
+            skippedLowQuality,
             success: true,
           });
+
+          console.log(
+            `✅ ${platformConfig.platform} authentic summary → created: ${postsCreated}, existing: ${skippedExisting}, lowQuality: ${skippedLowQuality}`
+          );
         } catch (platformError) {
           console.error(
-            `Error scraping ${platformConfig.platform}:`,
+            `❌ Error scraping ${platformConfig.platform}:`,
             platformError.message
           );
           platformResults.push({
             platform: platformConfig.platform,
             postsCreated: 0,
+            skippedExisting: 0,
+            skippedLowQuality: 0,
             success: false,
             error: platformError.message,
           });
         }
       }
 
-      // Update community stats
       await Community.findByIdAndUpdate(communityId, {
         lastScrapedAt: new Date(),
         $inc: { postCount: totalPostsCreated },
@@ -485,22 +545,18 @@ class ScraperManager {
       };
     } catch (error) {
       console.error(
-        `Error scraping authentic content for community ${communityId}:`,
+        `❌ Error scraping authentic content for community ${communityId}:`,
         error
       );
       throw error;
     }
   }
 
-  /**
-   * Validate content for authenticity
-   */
   async validateAuthenticContent(scrapedContent, community, maxPosts) {
     const authenticContent = [];
 
     for (const content of scrapedContent) {
       try {
-        // Check if content already exists
         const existingPost = await Post.findOne({
           $or: [
             { sourceUrl: content.url },
@@ -509,30 +565,27 @@ class ScraperManager {
         });
 
         if (existingPost) {
-          console.log(`ÔÜá´©Å Duplicate content found, skipping: ${content.id}`);
+          console.log(`⏭️ Duplicate content found, skipping: ${content.id}`);
           continue;
         }
 
-        // Validate authenticity
         const isAuthentic =
           await this.contentValidator.validateAuthenticity(content);
         if (!isAuthentic.valid) {
           console.log(
-            `ÔÜá´©Å Content failed authenticity check: ${isAuthentic.reason}`
+            `⏭️ Content failed authenticity check: ${isAuthentic.reason}`
           );
           continue;
         }
 
-        // Calculate quality score
         const qualityScore =
           this.contentProcessor.calculateQualityScore(content);
 
-        // Apply higher quality threshold for authentic content
         const minQualityScore =
-          community.scrapingConfig.qualityThreshold || 0.6;
+          community.scrapingConfig?.qualityThreshold || 0.6;
         if (qualityScore < minQualityScore) {
           console.log(
-            `ÔÜá´©Å Content quality too low (${qualityScore}), skipping...`
+            `⏭️ Content quality too low (${qualityScore}), skipping...`
           );
           continue;
         }
@@ -543,24 +596,23 @@ class ScraperManager {
           authenticityScore: isAuthentic.score,
         });
 
-        // Stop when we have enough authentic content
-        if (authenticContent.length >= maxPosts) {
-          break;
-        }
+        if (authenticContent.length >= maxPosts) break;
       } catch (error) {
-        console.error(`Error validating content ${content.id}:`, error.message);
+        console.error(
+          `❌ Error validating content ${content.id}:`,
+          error.message
+        );
       }
     }
 
     console.log(
-      `Ô£à Validated ${authenticContent.length} authentic posts out of ${scrapedContent.length} scraped`
+      `✅ Validated ${authenticContent.length} authentic post(s) out of ${scrapedContent.length} scraped`
     );
     return authenticContent;
   }
 
-  /**
-   * Create posts from authentic content with enhanced metadata
-   */
+  // --- creation -------------------------------------------------------------
+
   async createPostsFromAuthenticContent(
     authenticContent,
     community,
@@ -568,17 +620,26 @@ class ScraperManager {
     users
   ) {
     let postsCreated = 0;
+    let skippedExisting = 0;
+    let skippedLowQuality = 0;
+    const createdItems = [];
 
     for (const content of authenticContent) {
       try {
-        // Randomly assign a user as the owner
-        const randomUser = users[Math.floor(Math.random() * users.length)];
+        const exists = await Post.exists({
+          $or: [
+            { platform, originalId: content.id },
+            { sourceUrl: content.url },
+          ],
+        });
+        if (exists) {
+          skippedExisting++;
+          continue;
+        }
 
-        // Process content with authenticity focus
+        const randomUser = users[Math.floor(Math.random() * users.length)];
         const processedContent =
           this.contentProcessor.processAuthenticContent(content);
-
-        // Create the post with enhanced metadata
         const randomLikeCount = Math.floor(Math.random() * 11) + 5;
 
         const post = await Post.create({
@@ -591,7 +652,7 @@ class ScraperManager {
           owner: randomUser._id,
           engagementMetrics: {
             likes: randomLikeCount || 0,
-            comments: 0, // Remove original comment count
+            comments: 0,
             shares: content.shares || 0,
             views: content.views || 0,
           },
@@ -612,25 +673,27 @@ class ScraperManager {
         });
 
         postsCreated++;
+        createdItems.push(content);
         console.log(
-          `Ô£à Created authentic post: ${post.title.substring(0, 50)}...`
+          `✅ Created authentic post: ${post.title.substring(0, 50)}...`
         );
-
         await autoLikeService.assignInitialLikesToPost(post._id);
       } catch (postError) {
         console.error(
-          `Error creating post from ${content.id}:`,
+          `❌ Error creating post from ${content.id}:`,
           postError.message
         );
       }
     }
 
-    return postsCreated;
+    if (skippedExisting)
+      console.log(`⏭️ Skipped ${skippedExisting} existing post(s).`);
+    if (skippedLowQuality)
+      console.log(`⏭️ Skipped ${skippedLowQuality} low-quality post(s).`);
+
+    return { postsCreated, createdItems, skippedExisting, skippedLowQuality };
   }
 
-  /**
-   * Create posts from scraped content
-   */
   async createPostsFromScrapedContent(
     scrapedContent,
     community,
@@ -638,10 +701,12 @@ class ScraperManager {
     platformUsers
   ) {
     let postsCreated = 0;
+    let skippedExisting = 0;
+    let skippedLowQuality = 0;
+    const createdItems = [];
 
     for (const content of scrapedContent) {
       try {
-        // Check if post already exists
         const existingPost = await Post.findOne({
           $or: [
             { platform, originalId: content.id },
@@ -650,30 +715,24 @@ class ScraperManager {
         });
 
         if (existingPost) {
-          console.log(`Post ${content.id} already exists, skipping...`);
+          skippedExisting++;
           continue;
         }
 
-        // Process content quality
         const qualityScore =
           this.contentProcessor.calculateQualityScore(content);
-
-        // Skip low-quality content
-        if (qualityScore < (community.scrapingConfig.qualityThreshold || 0.5)) {
-          console.log(
-            `Post ${content.id} quality too low (${qualityScore}), skipping...`
-          );
+        if (
+          qualityScore < (community.scrapingConfig?.qualityThreshold || 0.5)
+        ) {
+          skippedLowQuality++;
           continue;
         }
 
-        // Randomly assign a platform user as the owner
         const randomUser =
           platformUsers[Math.floor(Math.random() * platformUsers.length)];
-
-        // Process and clean content
         const processedContent = this.contentProcessor.processContent(content);
         const randomLikeCount = Math.floor(Math.random() * 11) + 5;
-        // Create the post
+
         const post = await Post.create({
           title: processedContent.title,
           content: processedContent.content,
@@ -684,7 +743,7 @@ class ScraperManager {
           owner: randomUser._id,
           engagementMetrics: {
             likes: randomLikeCount || 0,
-            comments: 0, // Remove original comment count
+            comments: 0,
             shares: content.shares || 0,
             views: content.views || 0,
           },
@@ -703,45 +762,33 @@ class ScraperManager {
         });
 
         postsCreated++;
-        console.log(`Ô£à Created post: ${post.title.substring(0, 50)}...`);
-
+        createdItems.push(content);
+        console.log(`✅ Created post: ${post.title.substring(0, 50)}...`);
         await autoLikeService.assignInitialLikesToPost(post._id);
       } catch (postError) {
         console.error(
-          `Error creating post from ${content.id}:`,
+          `❌ Error creating post from ${content.id}:`,
           postError.message
         );
       }
     }
 
-    return postsCreated;
+    if (skippedExisting)
+      console.log(`⏭️ Skipped ${skippedExisting} existing post(s).`);
+    if (skippedLowQuality)
+      console.log(`⏭️ Skipped ${skippedLowQuality} low-quality post(s).`);
+
+    return { postsCreated, createdItems, skippedExisting, skippedLowQuality };
   }
 
-  /**
-   * Add a new platform scraper
-   */
-  async addNewPlatform(platformConfig) {
-    const { name, scraperClass, config } = platformConfig;
+  // --- stats / cleanup (logs fixed only) -----------------------------------
 
-    if (this.scrapers[name]) {
-      throw new Error(`Platform ${name} already exists`);
-    }
-
-    this.scrapers[name] = new scraperClass(config);
-    console.log(`Added new platform scraper: ${name}`);
-
-    return true;
-  }
-
-  /**
-   * Get scraping statistics
-   */
   async getScrapingStats() {
     const stats = await Post.aggregate([
       {
         $match: {
           "scrapingMetadata.scrapedAt": {
-            $gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
+            $gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
           },
         },
       },
@@ -771,9 +818,6 @@ class ScraperManager {
     };
   }
 
-  /**
-   * Clean up old or low-quality posts
-   */
   async cleanupPosts(options = {}) {
     const {
       olderThanDays = 30,
@@ -785,7 +829,6 @@ class ScraperManager {
       Date.now() - olderThanDays * 24 * 60 * 60 * 1000
     );
 
-    // Mark old, low-quality posts as hidden
     const hiddenResult = await Post.updateMany(
       {
         createdAt: { $lt: cutoffDate },
@@ -795,9 +838,10 @@ class ScraperManager {
       { status: "hidden" }
     );
 
-    console.log(`Hidden ${hiddenResult.modifiedCount} old, low-quality posts`);
+    console.log(
+      `🧹 Hidden ${hiddenResult.modifiedCount} old, low-quality posts`
+    );
 
-    // For each community, keep only the most recent posts
     const communities = await Community.find({ isActive: true });
 
     for (const community of communities) {
@@ -813,16 +857,14 @@ class ScraperManager {
           { _id: { $in: excessPosts.map((p) => p._id) } },
           { status: "hidden" }
         );
-
         console.log(
-          `Hidden ${excessPosts.length} excess posts from ${community.name}`
+          `🧹 Hidden ${excessPosts.length} excess posts from ${community.name}`
         );
       }
     }
 
     return {
       hiddenLowQuality: hiddenResult.modifiedCount,
-      totalCleaned: hiddenResult.modifiedCount + excessPosts?.length || 0,
     };
   }
 }
