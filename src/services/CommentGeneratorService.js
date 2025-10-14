@@ -6,7 +6,7 @@ import { Post } from "../models/post.model.js";
 class CommentGeneratorService {
   constructor() {
     this.openai = new OpenAI({
-      apiKey: !process.env.OPENAI_API_KEY,
+      apiKey: process.env.OPENAI_API_KEY,
     });
     this.rateLimitDelay = 1000; // 1 second between API calls
   }

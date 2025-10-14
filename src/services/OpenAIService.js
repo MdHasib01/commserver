@@ -3,7 +3,7 @@ import OpenAI from "openai";
 class OpenAIService {
   constructor() {
     this.openai = new OpenAI({
-      apiKey: !process.env.OPENAI_API_KEY,
+      apiKey: process.env.OPENAI_API_KEY,
     });
     this.rateLimitDelay = 1000; // 1 second between requests
     this.lastRequestTime = 0;

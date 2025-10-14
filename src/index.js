@@ -1,9 +1,8 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import connectDB from "./db/index.js";
 import { app } from "./app.js";
 import { schedulerService } from "./services/SchedulerService.js";
 
-dotenv.config();
 const PORT = process.env.PORT || 8082;
 
 connectDB()
