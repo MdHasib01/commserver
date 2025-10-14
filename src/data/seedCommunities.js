@@ -75,13 +75,12 @@ const communitiesData = [
     scrapingPlatforms: [
       {
         platform: "reddit",
-        sourceUrl: "https://www.reddit.com/r/Entrepreneur",
+        sourceUrl: "https://www.reddit.com/r/business",
         keywords: [
           "business strategy",
           "market analysis",
           "management",
           "leadership",
-          "scaling",
         ],
         isActive: true,
       },
@@ -219,13 +218,13 @@ const communitiesData = [
     scrapingPlatforms: [
       {
         platform: "reddit",
-        sourceUrl: "https://www.reddit.com/r/Startup",
+        sourceUrl: "https://www.reddit.com/r/businessideas",
         keywords: [
-          "startup idea",
           "business ideas",
-          "innovation",
           "opportunity",
+          "innovation",
           "market gap",
+          "startup idea",
         ],
         isActive: true,
       },
