@@ -128,27 +128,33 @@ class RedditScraper {
       keywords = [],
       maxPosts = 50,
       authenticityMode = true,
+      sort = "hot",
+      excludeStickied = false,
+      minCreatedUtc,
     } = config;
 
     try {
-      console.log(`🔍 Scraping Reddit content: ${sourceUrl}`);
+      console.log(`[reddit] Scraping content from ${sourceUrl} (sort=${sort})`);
 
       const subreddit = this.extractSubreddit(sourceUrl);
       if (!subreddit) {
         throw new Error("Invalid Reddit URL - could not extract subreddit");
       }
 
-      // Fetch real posts from Reddit API
-      const { posts } = await this.fetchRedditPosts(subreddit, maxPosts);
+      const { posts } = await this.fetchRedditPosts(subreddit, {
+        limit: maxPosts,
+        sort,
+        excludeStickied,
+        minCreatedUtc,
+      });
 
-      // Filter by keywords if provided
       const filteredPosts =
         keywords.length > 0
           ? posts.filter((post) => this.matchesKeywords(post, keywords))
           : posts;
 
       console.log(
-        `✅ Scraped ${filteredPosts.length} posts from r/${subreddit}`
+        `[reddit] Retrieved ${filteredPosts.length} posts from r/${subreddit}`
       );
       return filteredPosts.slice(0, maxPosts);
     } catch (error) {
@@ -221,12 +227,25 @@ class RedditScraper {
   /**
    * Fetch posts from Reddit API
    */
-  async fetchRedditPosts(subreddit, limit = 25, after = null) {
+  async fetchRedditPosts(
+    subreddit,
+    {
+      limit = 25,
+      sort = "hot",
+      excludeStickied = false,
+      minCreatedUtc,
+      after = null,
+    } = {}
+  ) {
     const posts = [];
     let nextAfter = after;
+    let reachedOlderThanMin = false;
+    const normalizedSort = ["hot", "new", "top", "rising"].includes(sort)
+      ? sort
+      : "hot";
 
     try {
-      while (posts.length < limit) {
+      while (posts.length < limit && !reachedOlderThanMin) {
         const remaining = limit - posts.length;
         const params = {
           limit: Math.min(remaining, 25),
@@ -238,7 +257,7 @@ class RedditScraper {
         }
 
         const response = await this.authorizedGet(
-          `/r/${subreddit}/hot`,
+          `/r/${subreddit}/${normalizedSort}`,
           {
             params,
             timeout: 10000,
@@ -252,6 +271,15 @@ class RedditScraper {
 
         for (const child of children) {
           if (!child?.data) continue;
+          if (excludeStickied && child.data.stickied) {
+            continue;
+          }
+
+          if (minCreatedUtc && child.data.created_utc <= minCreatedUtc) {
+            reachedOlderThanMin = true;
+            continue;
+          }
+
           posts.push(this.transformRedditPost(child.data));
           if (posts.length >= limit) {
             break;
@@ -263,7 +291,6 @@ class RedditScraper {
           break;
         }
 
-        // Respect Reddit rate limits
         await this.utils.delay(this.rateLimitDelay);
       }
 
@@ -272,7 +299,13 @@ class RedditScraper {
       if (error.response?.status === 429) {
         console.log("Rate limited, waiting longer...");
         await this.utils.delay(5000);
-        return this.fetchRedditPosts(subreddit, limit, nextAfter);
+        return this.fetchRedditPosts(subreddit, {
+          limit,
+          sort,
+          excludeStickied,
+          minCreatedUtc,
+          after: nextAfter,
+        });
       }
 
       throw error;
