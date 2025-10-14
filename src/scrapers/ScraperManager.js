@@ -1,4 +1,4 @@
-import { Community } from "../models/community.model.js";
+﻿import { Community } from "../models/community.model.js";
 import { Post } from "../models/post.model.js";
 import { User } from "../models/user.model.js";
 import { RedditScraper } from "./platforms/RedditScraper.js";
@@ -54,7 +54,7 @@ class ScraperManager {
           results.totalPostsCreated += communityResult.postsCreated;
 
           console.log(
-            `✅ Successfully scraped ${community.name}: ${communityResult.postsCreated} posts`
+            `Ô£à Successfully scraped ${community.name}: ${communityResult.postsCreated} posts`
           );
         } catch (error) {
           results.failedScrapes++;
@@ -64,7 +64,7 @@ class ScraperManager {
           });
 
           console.error(
-            `❌ Failed to scrape ${community.name}:`,
+            `ÔØî Failed to scrape ${community.name}:`,
             error.message
           );
         }
@@ -105,7 +105,7 @@ class ScraperManager {
           results.totalPostsCreated += communityResult.postsCreated;
 
           console.log(
-            `✅ Successfully scraped ${community.name}: ${communityResult.postsCreated} posts`
+            `Ô£à Successfully scraped ${community.name}: ${communityResult.postsCreated} posts`
           );
         } catch (error) {
           results.failedScrapes++;
@@ -115,7 +115,7 @@ class ScraperManager {
           });
 
           console.error(
-            `❌ Failed to scrape ${community.name}:`,
+            `ÔØî Failed to scrape ${community.name}:`,
             error.message
           );
         }
@@ -365,7 +365,7 @@ class ScraperManager {
           );
 
           console.log(
-            `✅ Generated AI comments for post: ${post.title.substring(0, 30)}...`
+            `Ô£à Generated AI comments for post: ${post.title.substring(0, 30)}...`
           );
 
           // Add delay to avoid overwhelming the API
@@ -393,7 +393,7 @@ class ScraperManager {
         throw new Error("Community not found");
       }
 
-      console.log(`🔍 Scraping authentic content for: ${community.name}`);
+      console.log(`­ƒöì Scraping authentic content for: ${community.name}`);
 
       let totalPostsCreated = 0;
       const platformResults = [];
@@ -420,7 +420,7 @@ class ScraperManager {
           }
 
           console.log(
-            `🎯 Scraping ${postsPerPlatform} authentic posts from ${platformConfig.platform}...`
+            `­ƒÄ» Scraping ${postsPerPlatform} authentic posts from ${platformConfig.platform}...`
           );
 
           // Scrape with authenticity focus
@@ -512,7 +512,7 @@ class ScraperManager {
         });
 
         if (existingPost) {
-          console.log(`⚠️ Duplicate content found, skipping: ${content.id}`);
+          console.log(`ÔÜá´©Å Duplicate content found, skipping: ${content.id}`);
           continue;
         }
 
@@ -521,7 +521,7 @@ class ScraperManager {
           await this.contentValidator.validateAuthenticity(content);
         if (!isAuthentic.valid) {
           console.log(
-            `⚠️ Content failed authenticity check: ${isAuthentic.reason}`
+            `ÔÜá´©Å Content failed authenticity check: ${isAuthentic.reason}`
           );
           continue;
         }
@@ -535,7 +535,7 @@ class ScraperManager {
           community.scrapingConfig.qualityThreshold || 0.6;
         if (qualityScore < minQualityScore) {
           console.log(
-            `⚠️ Content quality too low (${qualityScore}), skipping...`
+            `ÔÜá´©Å Content quality too low (${qualityScore}), skipping...`
           );
           continue;
         }
@@ -556,7 +556,7 @@ class ScraperManager {
     }
 
     console.log(
-      `✅ Validated ${authenticContent.length} authentic posts out of ${scrapedContent.length} scraped`
+      `Ô£à Validated ${authenticContent.length} authentic posts out of ${scrapedContent.length} scraped`
     );
     return authenticContent;
   }
@@ -616,7 +616,7 @@ class ScraperManager {
 
         postsCreated++;
         console.log(
-          `✅ Created authentic post: ${post.title.substring(0, 50)}...`
+          `Ô£à Created authentic post: ${post.title.substring(0, 50)}...`
         );
 
         await autoLikeService.assignInitialLikesToPost(post._id);
@@ -706,7 +706,7 @@ class ScraperManager {
         });
 
         postsCreated++;
-        console.log(`✅ Created post: ${post.title.substring(0, 50)}...`);
+        console.log(`Ô£à Created post: ${post.title.substring(0, 50)}...`);
 
         await autoLikeService.assignInitialLikesToPost(post._id);
       } catch (postError) {

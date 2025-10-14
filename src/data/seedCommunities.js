@@ -14,12 +14,6 @@ const communitiesData = [
         keywords: ["startup", "business", "entrepreneur", "funding", "growth"],
         isActive: true,
       },
-      {
-        platform: "twitter",
-        sourceUrl: "https://twitter.com/search?q=entrepreneur",
-        keywords: ["entrepreneur", "startup", "business", "founder"],
-        isActive: true,
-      },
     ],
     scrapingConfig: {
       frequency: "daily",
@@ -38,12 +32,6 @@ const communitiesData = [
         platform: "reddit",
         sourceUrl: "https://www.reddit.com/r/startups",
         keywords: ["startup", "mvp", "funding", "venture capital", "seed"],
-        isActive: true,
-      },
-      {
-        platform: "medium",
-        sourceUrl: "https://medium.com/topic/startup",
-        keywords: ["startup", "entrepreneurship", "venture", "scaling"],
         isActive: true,
       },
     ],
@@ -71,12 +59,6 @@ const communitiesData = [
         ],
         isActive: true,
       },
-      {
-        platform: "linkedin",
-        sourceUrl: "https://linkedin.com/company/small-business",
-        keywords: ["small business", "local", "community", "growth"],
-        isActive: true,
-      },
     ],
     scrapingConfig: {
       frequency: "daily",
@@ -92,17 +74,11 @@ const communitiesData = [
     category: "business-general",
     scrapingPlatforms: [
       {
-        platform: "linkedin",
-        sourceUrl: "https://linkedin.com/company/business-strategy",
-        keywords: ["strategy", "business", "market", "analysis", "corporate"],
-        isActive: true,
-      },
-      {
-        platform: "medium",
-        sourceUrl: "https://medium.com/topic/business",
+        platform: "reddit",
+        sourceUrl: "https://www.reddit.com/r/business",
         keywords: [
           "business strategy",
-          "corporate",
+          "market analysis",
           "management",
           "leadership",
         ],
@@ -134,12 +110,6 @@ const communitiesData = [
         ],
         isActive: true,
       },
-      {
-        platform: "twitter",
-        sourceUrl: "https://twitter.com/search?q=marketing",
-        keywords: ["marketing", "digital", "seo", "content", "social"],
-        isActive: true,
-      },
     ],
     scrapingConfig: {
       frequency: "daily",
@@ -166,12 +136,6 @@ const communitiesData = [
         ],
         isActive: true,
       },
-      {
-        platform: "twitter",
-        sourceUrl: "https://twitter.com/search?q=saas",
-        keywords: ["saas", "software", "subscription", "mrr", "arr"],
-        isActive: true,
-      },
     ],
     scrapingConfig: {
       frequency: "daily",
@@ -192,17 +156,6 @@ const communitiesData = [
         keywords: ["ecommerce", "online store", "shopify", "amazon", "retail"],
         isActive: true,
       },
-      {
-        platform: "medium",
-        sourceUrl: "https://medium.com/topic/ecommerce",
-        keywords: [
-          "ecommerce",
-          "online retail",
-          "digital commerce",
-          "marketplace",
-        ],
-        isActive: true,
-      },
     ],
     scrapingConfig: {
       frequency: "daily",
@@ -221,12 +174,6 @@ const communitiesData = [
         platform: "reddit",
         sourceUrl: "https://www.reddit.com/r/sales",
         keywords: ["sales", "selling", "crm", "leads", "conversion"],
-        isActive: true,
-      },
-      {
-        platform: "linkedin",
-        sourceUrl: "https://linkedin.com/company/sales",
-        keywords: ["sales", "b2b", "selling", "revenue", "customers"],
         isActive: true,
       },
     ],
@@ -255,12 +202,6 @@ const communitiesData = [
         ],
         isActive: true,
       },
-      {
-        platform: "medium",
-        sourceUrl: "https://medium.com/topic/personal-finance",
-        keywords: ["finance", "investing", "money", "wealth", "financial"],
-        isActive: true,
-      },
     ],
     scrapingConfig: {
       frequency: "daily",
@@ -285,12 +226,6 @@ const communitiesData = [
           "market gap",
           "startup idea",
         ],
-        isActive: true,
-      },
-      {
-        platform: "twitter",
-        sourceUrl: "https://twitter.com/search?q=business%20ideas",
-        keywords: ["business ideas", "opportunity", "innovation", "startup"],
         isActive: true,
       },
     ],

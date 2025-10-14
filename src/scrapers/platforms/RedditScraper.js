@@ -3,9 +3,120 @@ import { ScrapingUtils } from "../utils/ScrapingUtils.js";
 
 class RedditScraper {
   constructor() {
-    this.baseUrl = "https://www.reddit.com";
+    this.baseUrl = "https://www.reddit.com"; // Web base used for canonical URLs
+    this.apiBaseUrl = "https://oauth.reddit.com";
+    this.authUrl = "https://www.reddit.com/api/v1/access_token";
     this.utils = new ScrapingUtils();
     this.rateLimitDelay = 2000; // 2 seconds between requests
+    this.userAgent =
+      process.env.REDDIT_USER_AGENT ||
+      "EarnCoreCommunityBot/1.0 (by /u/EarnCoreCommunityBot)";
+    this.clientId = process.env.REDDIT_CLIENT_ID;
+    this.clientSecret = process.env.REDDIT_CLIENT_SECRET;
+    this.refreshToken = process.env.REDDIT_REFRESH_TOKEN;
+    this.accessToken = null;
+    this.tokenExpiresAt = 0;
+    this.tokenRequestPromise = null;
+  }
+
+  /**
+   * Check that Reddit OAuth credentials are configured
+   */
+  isAuthConfigured() {
+    return (
+      Boolean(this.clientId) &&
+      Boolean(this.clientSecret) &&
+      Boolean(this.refreshToken)
+    );
+  }
+
+  /**
+   * Retrieve (and cache) an OAuth access token using the provided refresh token
+   */
+  async getAccessToken() {
+    if (
+      this.accessToken &&
+      Date.now() < this.tokenExpiresAt - 60 * 1000 // Refresh 1 minute early
+    ) {
+      return this.accessToken;
+    }
+
+    if (this.tokenRequestPromise) {
+      return this.tokenRequestPromise;
+    }
+
+    if (!this.isAuthConfigured()) {
+      throw new Error(
+        "Missing Reddit OAuth credentials. Please set REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, and REDDIT_REFRESH_TOKEN."
+      );
+    }
+
+    const params = new URLSearchParams();
+    params.append("grant_type", "refresh_token");
+    params.append("refresh_token", this.refreshToken);
+
+    const basicAuth = Buffer.from(
+      `${this.clientId}:${this.clientSecret}`
+    ).toString("base64");
+
+    this.tokenRequestPromise = axios
+      .post(this.authUrl, params.toString(), {
+        headers: {
+          Authorization: `Basic ${basicAuth}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": this.userAgent,
+        },
+        timeout: 10000,
+      })
+      .then((response) => {
+        const accessToken = response.data?.access_token;
+        const expiresIn = response.data?.expires_in ?? 3600;
+
+        if (!accessToken) {
+          throw new Error("Reddit did not return an access token");
+        }
+
+        this.accessToken = accessToken;
+        this.tokenExpiresAt = Date.now() + Math.max(expiresIn - 60, 60) * 1000;
+        return this.accessToken;
+      })
+      .catch((error) => {
+        const message =
+          error.response?.data?.error_description ||
+          error.response?.data?.message ||
+          error.message;
+        throw new Error(`Failed to refresh Reddit access token: ${message}`);
+      })
+      .finally(() => {
+        this.tokenRequestPromise = null;
+      });
+
+    return this.tokenRequestPromise;
+  }
+
+  /**
+   * Helper to perform authorized GET requests against Reddit API
+   */
+  async authorizedGet(path, options = {}) {
+    const token = await this.getAccessToken();
+
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "User-Agent": this.userAgent,
+      ...options.headers,
+    };
+
+    const requestConfig = {
+      ...options,
+      headers,
+      timeout: options.timeout || 10000,
+    };
+
+    const url = path.startsWith("http")
+      ? path
+      : `${this.apiBaseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
+
+    return axios.get(url, requestConfig);
   }
 
   /**
@@ -28,7 +139,7 @@ class RedditScraper {
       }
 
       // Fetch real posts from Reddit API
-      const posts = await this.fetchRedditPosts(subreddit, maxPosts);
+      const { posts } = await this.fetchRedditPosts(subreddit, maxPosts);
 
       // Filter by keywords if provided
       const filteredPosts =
@@ -51,13 +162,8 @@ class RedditScraper {
    */
   async scrapePostComments(postId, maxComments = 10) {
     try {
-      const url = `${this.baseUrl}/comments/${postId}.json`;
-
-      const response = await axios.get(url, {
+      const response = await this.authorizedGet(`/comments/${postId}`, {
         params: { raw_json: 1, limit: maxComments },
-        headers: {
-          "User-Agent": "CommunityBot/1.0 (by /u/CommunityBot)",
-        },
         timeout: 15000,
       });
 
@@ -116,37 +222,57 @@ class RedditScraper {
    * Fetch posts from Reddit API
    */
   async fetchRedditPosts(subreddit, limit = 25, after = null) {
+    const posts = [];
+    let nextAfter = after;
+
     try {
-      const url = `${this.baseUrl}/r/${subreddit}/hot.json`;
-      const params = {
-        limit,
-        raw_json: 1,
-      };
+      while (posts.length < limit) {
+        const remaining = limit - posts.length;
+        const params = {
+          limit: Math.min(remaining, 25),
+          raw_json: 1,
+        };
 
-      if (after) {
-        params.after = after;
+        if (nextAfter) {
+          params.after = nextAfter;
+        }
+
+        const response = await this.authorizedGet(
+          `/r/${subreddit}/hot`,
+          {
+            params,
+            timeout: 10000,
+          }
+        );
+
+        const children = response.data?.data?.children || [];
+        if (children.length === 0) {
+          break;
+        }
+
+        for (const child of children) {
+          if (!child?.data) continue;
+          posts.push(this.transformRedditPost(child.data));
+          if (posts.length >= limit) {
+            break;
+          }
+        }
+
+        nextAfter = response.data?.data?.after;
+        if (!nextAfter) {
+          break;
+        }
+
+        // Respect Reddit rate limits
+        await this.utils.delay(this.rateLimitDelay);
       }
 
-      const response = await axios.get(url, {
-        params,
-        headers: {
-          "User-Agent": "CommunityBot/1.0 (by /u/CommunityBot)",
-        },
-        timeout: 10000,
-      });
-
-      if (!response.data?.data?.children) {
-        return [];
-      }
-
-      return response.data.data.children.map((child) =>
-        this.transformRedditPost(child.data)
-      );
+      return { posts, nextAfter };
     } catch (error) {
       if (error.response?.status === 429) {
         console.log("Rate limited, waiting longer...");
         await this.utils.delay(5000);
-        return this.fetchRedditPosts(subreddit, limit, after);
+        return this.fetchRedditPosts(subreddit, limit, nextAfter);
       }
 
       throw error;
@@ -382,14 +508,9 @@ class RedditScraper {
    */
   async getSubredditInfo(subreddit) {
     try {
-      const response = await axios.get(
-        `${this.baseUrl}/r/${subreddit}/about.json`,
-        {
-          headers: {
-            "User-Agent": "CommunityBot/1.0 (by /u/CommunityBot)",
-          },
-        }
-      );
+      const response = await this.authorizedGet(`/r/${subreddit}/about`, {
+        params: { raw_json: 1 },
+      });
 
       const data = response.data.data;
       return {

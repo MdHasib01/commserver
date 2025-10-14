@@ -197,8 +197,8 @@ const createPost = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Community not found");
   }
 
-  const allowedPlatforms = ["reddit", "twitter", "linkedin", "medium"];
-  const resolvedPlatform = (platform || "linkedin").toLowerCase();
+  const allowedPlatforms = ["reddit"];
+  const resolvedPlatform = (platform || "reddit").toLowerCase();
 
   if (!allowedPlatforms.includes(resolvedPlatform)) {
     throw new ApiError(
@@ -491,7 +491,7 @@ const getPostsByPlatform = asyncHandler(async (req, res) => {
     sortType = "desc",
   } = req.query;
 
-  const validPlatforms = ["reddit", "twitter", "linkedin", "medium"];
+  const validPlatforms = ["reddit"];
   if (!validPlatforms.includes(platform)) {
     throw new ApiError(400, "Invalid platform");
   }
@@ -571,7 +571,7 @@ const getPostsByCommunity = asyncHandler(async (req, res) => {
     sortType = "desc",
   } = req.query;
 
-  const validPlatforms = Community.name;
+  const validPlatforms = ["reddit"];
   if (!validPlatforms.includes(platform)) {
     throw new ApiError(400, "Invalid platform");
   }

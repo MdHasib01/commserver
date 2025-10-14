@@ -51,7 +51,7 @@ const communitySchema = new Schema(
       {
         platform: {
           type: String,
-          enum: ["reddit", "twitter", "linkedin", "medium"],
+          enum: ["reddit"],
           required: true,
         },
         sourceUrl: {

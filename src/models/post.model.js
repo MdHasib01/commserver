@@ -9,7 +9,7 @@ const postSchema = new Schema(
     platform: {
       type: String,
       required: true,
-      enum: ["reddit", "twitter", "linkedin", "medium"],
+      enum: ["reddit"],
       index: true,
     },
     originalId: { type: String, required: true, index: true },

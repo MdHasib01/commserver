@@ -119,7 +119,7 @@ router.post(
       throw new ApiError(400, "Source URL is required");
     }
 
-    const validPlatforms = ["reddit", "twitter", "linkedin", "medium"];
+    const validPlatforms = ["reddit"];
     if (!validPlatforms.includes(platform)) {
       throw new ApiError(400, "Invalid platform");
     }
