@@ -81,12 +81,8 @@ postSchema.plugin(mongooseAggregatePaginate);
 
 // @@ Compound indexes for efficient querying @@
 postSchema.index({ community: 1, status: 1, createdAt: -1 });
+postSchema.index({ platform: 1, originalId: 1 }, { unique: true });
 postSchema.index({ "scrapingMetadata.scrapedAt": -1 });
 postSchema.index({ "scrapingMetadata.qualityScore": -1 });
-PostSchema.index(
-  { platform: 1, originalId: 1 },
-  { unique: true, sparse: true }
-);
-PostSchema.index({ sourceUrl: 1 }, { unique: true, sparse: true });
 
 export const Post = mongoose.model("Post", postSchema);
