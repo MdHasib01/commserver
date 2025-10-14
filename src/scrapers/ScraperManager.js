@@ -39,6 +39,93 @@ class ScraperManager {
     return results.filter((r) => r.keep).map((r) => r.item);
   }
 
+  async _fetchAndFilter(scraper, platformConfig, options) {
+    const scraped = await scraper.scrapeContent(options);
+    const filtered = await this.filterNewContent(scraped, platformConfig.platform);
+    return {
+      filtered,
+      fetchedCount: scraped.length,
+    };
+  }
+
+  async fetchFreshContentForPlatform(
+    scraper,
+    platformConfig,
+    {
+      maxPosts,
+      since,
+      fetchMultiplier = 3,
+      fallbackMultiplier = 6,
+      maxFetchLimit,
+      fallbackMaxFetchLimit,
+      maxPages = 10,
+      fallbackMaxPages = 20,
+      additionalOptions = {},
+    } = {}
+  ) {
+    const resolvedMaxPosts = Math.max(maxPosts || 1, 1);
+    const baseFetchLimit =
+      maxFetchLimit ?? Math.max(resolvedMaxPosts * fetchMultiplier, 120);
+
+    const baseOptions = {
+      sourceUrl: platformConfig.sourceUrl,
+      keywords: platformConfig.keywords,
+      maxPosts: resolvedMaxPosts,
+      sort: "new",
+      excludeStickied: true,
+      minCreatedUtc: since,
+      fetchMultiplier,
+      maxFetchLimit: baseFetchLimit,
+      maxPages,
+      ...additionalOptions,
+    };
+
+    const initial = await this._fetchAndFilter(scraper, platformConfig, baseOptions);
+    if (initial.filtered.length > 0) {
+      return {
+        items: initial.filtered,
+        usedFallback: false,
+        fetchedCount: initial.fetchedCount,
+      };
+    }
+
+    console.log(
+      `?? No fresh posts via recent window for ${platformConfig.platform} (${platformConfig.sourceUrl}). Expanding search...`
+    );
+
+    const expandedOptions = {
+      ...baseOptions,
+      minCreatedUtc: undefined,
+      fetchMultiplier: Math.max(fallbackMultiplier, fetchMultiplier),
+      maxFetchLimit:
+        fallbackMaxFetchLimit ??
+        Math.max(
+          baseFetchLimit * 2,
+          resolvedMaxPosts * fallbackMultiplier,
+          200
+        ),
+      maxPages: fallbackMaxPages,
+    };
+
+    const expanded = await this._fetchAndFilter(
+      scraper,
+      platformConfig,
+      expandedOptions
+    );
+
+    if (expanded.filtered.length === 0) {
+      console.log(
+        `?? Fallback search still produced 0 new posts (checked ${expanded.fetchedCount} candidates)`
+      );
+    }
+
+    return {
+      items: expanded.filtered,
+      usedFallback: true,
+      fetchedCount: expanded.fetchedCount,
+    };
+  }
+
   // --- entrypoints ----------------------------------------------------------
 
   async scrapeSinglePostFromAllCommunities() {
@@ -180,18 +267,29 @@ class ScraperManager {
             ? this._toUnixSeconds(community.lastScrapedAt)
             : undefined;
 
-          const scrapedContent = await scraper.scrapeContent({
-            sourceUrl: platformConfig.sourceUrl,
-            keywords: platformConfig.keywords,
-            maxPosts: 5, // fetch a few, then filter to 1
-            sort: "new",
-            excludeStickied: true,
-            minCreatedUtc: since,
-          });
+          const { items: freshItems, usedFallback } =
+            await this.fetchFreshContentForPlatform(scraper, platformConfig, {
+              maxPosts: 5,
+              since,
+              fetchMultiplier: 3,
+              fallbackMultiplier: 6,
+              maxFetchLimit: 60,
+              fallbackMaxFetchLimit: 150,
+              maxPages: 6,
+              fallbackMaxPages: 15,
+            });
 
-          const newOnly = (
-            await this.filterNewContent(scrapedContent, platformConfig.platform)
-          ).slice(0, 1); // keep a single new post
+          if (usedFallback) {
+            console.log("?? Used fallback fetch window to locate fresh posts.");
+          }
+
+          const newOnly = freshItems.slice(0, 1);
+
+          if (newOnly.length === 0) {
+            console.log(
+              `?? No new posts available for ${platformConfig.platform} (${platformConfig.sourceUrl}) even after fallback.`
+            );
+          }
 
           const {
             postsCreated,
@@ -246,10 +344,12 @@ class ScraperManager {
       }
 
       // Update lastScrapedAt & counters
-      await Community.findByIdAndUpdate(communityId, {
-        lastScrapedAt: new Date(),
-        $inc: { postCount: totalPostsCreated },
-      });
+      const updatePayload = { $inc: { postCount: totalPostsCreated } };
+      if (totalPostsCreated > 0) {
+        updatePayload.lastScrapedAt = new Date();
+      }
+
+      await Community.findByIdAndUpdate(communityId, updatePayload);
 
       return {
         communityId,
@@ -304,19 +404,32 @@ class ScraperManager {
             ? this._toUnixSeconds(community.lastScrapedAt)
             : undefined;
 
-          const scrapedContent = await scraper.scrapeContent({
-            sourceUrl: platformConfig.sourceUrl,
-            keywords: platformConfig.keywords,
-            maxPosts: community.scrapingConfig?.maxPostsPerScrape || 50,
-            sort: "new",
-            excludeStickied: true,
-            minCreatedUtc: since,
-          });
+          const desiredPosts =
+            community.scrapingConfig?.maxPostsPerScrape || 50;
 
-          const newOnly = await this.filterNewContent(
-            scrapedContent,
-            platformConfig.platform
-          );
+          const { items: newOnly, usedFallback } =
+            await this.fetchFreshContentForPlatform(scraper, platformConfig, {
+              maxPosts: desiredPosts,
+              since,
+              fetchMultiplier: 3,
+              fallbackMultiplier: 6,
+              maxFetchLimit: Math.max(desiredPosts * 3, 150),
+              fallbackMaxFetchLimit: Math.max(desiredPosts * 6, 250),
+              maxPages: 10,
+              fallbackMaxPages: 20,
+            });
+
+          if (usedFallback) {
+            console.log(
+              `?? Fallback window returned ${newOnly.length} unseen candidate(s).`
+            );
+          }
+
+          if (newOnly.length === 0) {
+            console.log(
+              `?? No new posts identified for ${community.name} (${platformConfig.sourceUrl}).`
+            );
+          }
 
           const {
             postsCreated,
@@ -370,10 +483,12 @@ class ScraperManager {
         }
       }
 
-      await Community.findByIdAndUpdate(communityId, {
-        lastScrapedAt: new Date(),
-        $inc: { postCount: totalPostsCreated },
-      });
+      const updatePayload = { $inc: { postCount: totalPostsCreated } };
+      if (totalPostsCreated > 0) {
+        updatePayload.lastScrapedAt = new Date();
+      }
+
+      await Community.findByIdAndUpdate(communityId, updatePayload);
 
       return {
         communityId,

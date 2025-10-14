@@ -131,6 +131,9 @@ class RedditScraper {
       sort = "hot",
       excludeStickied = false,
       minCreatedUtc,
+      fetchMultiplier = 3,
+      maxFetchLimit = 150,
+      maxPages = 10,
     } = config;
 
     try {
@@ -141,11 +144,16 @@ class RedditScraper {
         throw new Error("Invalid Reddit URL - could not extract subreddit");
       }
 
+      const fetchLimit = Math.min(
+        Math.max(maxPosts, 1) * Math.max(fetchMultiplier, 1),
+        Math.max(maxFetchLimit, 1)
+      );
       const { posts } = await this.fetchRedditPosts(subreddit, {
-        limit: maxPosts,
+        limit: fetchLimit,
         sort,
         excludeStickied,
         minCreatedUtc,
+        maxPages,
       });
 
       const filteredPosts =
@@ -235,6 +243,7 @@ class RedditScraper {
       excludeStickied = false,
       minCreatedUtc,
       after = null,
+      maxPages = 10,
     } = {}
   ) {
     const posts = [];
@@ -243,9 +252,14 @@ class RedditScraper {
     const normalizedSort = ["hot", "new", "top", "rising"].includes(sort)
       ? sort
       : "hot";
+    let pagesFetched = 0;
 
     try {
-      while (posts.length < limit && !reachedOlderThanMin) {
+      while (
+        posts.length < limit &&
+        !reachedOlderThanMin &&
+        pagesFetched < Math.max(maxPages, 1)
+      ) {
         const remaining = limit - posts.length;
         const params = {
           limit: Math.min(remaining, 25),
@@ -292,6 +306,7 @@ class RedditScraper {
         }
 
         await this.utils.delay(this.rateLimitDelay);
+        pagesFetched += 1;
       }
 
       return { posts, nextAfter };
@@ -305,6 +320,7 @@ class RedditScraper {
           excludeStickied,
           minCreatedUtc,
           after: nextAfter,
+          maxPages,
         });
       }
 
