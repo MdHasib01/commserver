@@ -407,7 +407,7 @@ class ScraperManager {
           const desiredPosts =
             community.scrapingConfig?.maxPostsPerScrape || 50;
 
-          const { items: newOnly, usedFallback } =
+          const { items: freshItems, usedFallback } =
             await this.fetchFreshContentForPlatform(scraper, platformConfig, {
               maxPosts: desiredPosts,
               since,
@@ -421,9 +421,11 @@ class ScraperManager {
 
           if (usedFallback) {
             console.log(
-              `?? Fallback window returned ${newOnly.length} unseen candidate(s).`
+              `?? Fallback window returned ${freshItems.length} unseen candidate(s).`
             );
           }
+
+          const newOnly = freshItems.slice(0, desiredPosts);
 
           if (newOnly.length === 0) {
             console.log(
@@ -582,20 +584,39 @@ class ScraperManager {
           }
 
           console.log(
-            `🧪 Scraping ${postsPerPlatform} authentic posts from ${platformConfig.platform}...`
+            `[authentic] Scraping ${postsPerPlatform} authentic posts from ${platformConfig.platform}...`
           );
 
-          const scrapedContent = await scraper.scrapeContent({
-            sourceUrl: platformConfig.sourceUrl,
-            keywords: platformConfig.keywords,
-            maxPosts: postsPerPlatform * 3,
-            authenticityMode: true,
-            sort: "new",
-            excludeStickied: true,
-          });
+          const since = community.lastScrapedAt
+            ? this._toUnixSeconds(community.lastScrapedAt)
+            : undefined;
+
+          const desiredCandidates = Math.max(
+            postsPerPlatform * 4,
+            postsPerPlatform
+          );
+
+          const { items: candidateContent, usedFallback } =
+            await this.fetchFreshContentForPlatform(scraper, platformConfig, {
+              maxPosts: desiredCandidates,
+              since,
+              fetchMultiplier: 4,
+              fallbackMultiplier: 8,
+              maxFetchLimit: Math.max(desiredCandidates * 2, 160),
+              fallbackMaxFetchLimit: Math.max(desiredCandidates * 3, 240),
+              maxPages: 12,
+              fallbackMaxPages: 24,
+              additionalOptions: { authenticityMode: true },
+            });
+
+          if (usedFallback) {
+            console.log(
+              `[authentic] Fallback search gathered ${candidateContent.length} candidate(s).`
+            );
+          }
 
           const authenticContent = await this.validateAuthenticContent(
-            scrapedContent,
+            candidateContent,
             community,
             postsPerPlatform
           );
@@ -647,10 +668,12 @@ class ScraperManager {
         }
       }
 
-      await Community.findByIdAndUpdate(communityId, {
-        lastScrapedAt: new Date(),
-        $inc: { postCount: totalPostsCreated },
-      });
+      const updatePayload = { $inc: { postCount: totalPostsCreated } };
+      if (totalPostsCreated > 0) {
+        updatePayload.lastScrapedAt = new Date();
+      }
+
+      await Community.findByIdAndUpdate(communityId, updatePayload);
 
       return {
         communityId,
