@@ -2,9 +2,6 @@
 import { Post } from "../models/post.model.js";
 import { User } from "../models/user.model.js";
 import { RedditScraper } from "./platforms/RedditScraper.js";
-import { TwitterScraper } from "./platforms/TwitterScraper.js";
-import { LinkedInScraper } from "./platforms/LinkedInScraper.js";
-import { MediumScraper } from "./platforms/MediumScraper.js";
 import { ScrapingUtils } from "./utils/ScrapingUtils.js";
 import { ContentProcessor } from "./utils/ContentProcessor.js";
 import { ContentValidator } from "./utils/ContentValidator.js";
@@ -15,9 +12,6 @@ class ScraperManager {
   constructor() {
     this.scrapers = {
       reddit: new RedditScraper(),
-      twitter: new TwitterScraper(),
-      linkedin: new LinkedInScraper(),
-      medium: new MediumScraper(),
     };
     this.utils = new ScrapingUtils();
     this.contentProcessor = new ContentProcessor();
@@ -155,6 +149,7 @@ class ScraperManager {
       // Scrape 1 post from each active platform
       for (const platformConfig of community.scrapingPlatforms) {
         if (!platformConfig.isActive) continue;
+        if (platformConfig.platform !== "reddit") continue;
 
         try {
           const scraper = this.scrapers[platformConfig.platform];
@@ -258,6 +253,7 @@ class ScraperManager {
       // Scrape from each active platform
       for (const platformConfig of community.scrapingPlatforms) {
         if (!platformConfig.isActive) continue;
+        if (platformConfig.platform !== "reddit") continue;
 
         try {
           const scraper = this.scrapers[platformConfig.platform];
@@ -409,6 +405,7 @@ class ScraperManager {
       // Scrape from each active platform
       for (const platformConfig of community.scrapingPlatforms) {
         if (!platformConfig.isActive) continue;
+        if (platformConfig.platform !== "reddit") continue;
 
         try {
           const scraper = this.scrapers[platformConfig.platform];
