@@ -77,7 +77,7 @@ class SchedulerService {
     }
 
     // Every 15 minutes
-    const cronSchedule = "*/1 * * * *";
+    const cronSchedule = "*/15 * * * *";
 
     const job = cron.schedule(
       cronSchedule,
