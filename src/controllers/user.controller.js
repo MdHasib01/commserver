@@ -5,6 +5,8 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
+import emailService from "../services/emailService.js";
+import { Otp } from "../models/otp.model.js";
 
 const generateAccessAndRefereshTokens = async (userId) => {
   try {
@@ -63,6 +65,21 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Avatar file is required");
   }
 
+  const otp = Math.floor(100000 + Math.random() * 900000);
+  await Otp.create({
+    email,
+    otp,
+  });
+  await emailService.sendEmail(
+    email,
+    "otp",
+    {
+      otp,
+      fullName,
+    },
+    "OTP for email verification",
+    process.env.DEFAULT_FROM_EMAIL
+  );
   const user = await User.create({
     fullName,
     avatar: avatar.url,
@@ -109,6 +126,10 @@ const loginUser = asyncHandler(async (req, res) => {
   const user = await User.findOne({
     $or: [{ username }, { email }],
   });
+
+  if (user.userType === "real" && user?.isVerified === false) {
+    throw new ApiError(400, "User email is not verified");
+  }
 
   if (!user) {
     throw new ApiError(404, "User does not exist");
@@ -175,6 +196,42 @@ const logoutUser = asyncHandler(async (req, res) => {
     .clearCookie("accessToken", options)
     .clearCookie("refreshToken", options)
     .json(new ApiResponse(200, {}, "User logged Out"));
+});
+
+const verifyOTP = asyncHandler(async (req, res) => {
+  const { email, otp } = req.body;
+
+  if (!email || !otp) {
+    throw new ApiError(400, "Email and OTP are required");
+  }
+
+  const user = await User.findOne({ email });
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  const existingOtp = await Otp.findOne({ email });
+
+  if (!existingOtp) {
+    throw new ApiError(404, "OTP not found");
+  }
+
+  if (existingOtp.otp !== otp) {
+    throw new ApiError(400, "Invalid OTP");
+  }
+
+  await Otp.findByIdAndDelete(existingOtp._id);
+
+  await User.findByIdAndUpdate(user._id, {
+    $set: {
+      isVerified: true,
+    },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, "Email verified successfully"));
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -808,4 +865,5 @@ export {
   getWatchHistory,
   getMyProfile,
   getUserProfileById,
+  verifyOTP,
 };

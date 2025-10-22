@@ -14,6 +14,7 @@ import {
   getUserProfile,
   getMyProfile,
   getUserProfileById,
+  verifyOTP,
 } from "../controllers/user.controller.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
@@ -33,6 +34,9 @@ router.route("/register").post(
   ]),
   registerUser
 );
+
+//public routes
+router.route("/verify-otp").post(verifyOTP);
 
 router.route("/login").post(loginUser);
 
