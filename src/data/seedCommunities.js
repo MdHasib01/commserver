@@ -75,7 +75,7 @@ const communitiesData = [
     scrapingPlatforms: [
       {
         platform: "reddit",
-        sourceUrl: "https://www.reddit.com/r/leadership",
+        sourceUrl: "https://www.reddit.com/r/growmybusiness",
         keywords: [
           "business strategy",
           "market analysis",
