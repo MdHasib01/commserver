@@ -156,10 +156,23 @@ class RedditScraper {
         maxPages,
       });
 
-      const filteredPosts =
+      const postsWithKeywordFlag = posts.map((post) => ({
+        ...post,
+        keywordMatched:
+          keywords.length === 0 ? true : this.matchesKeywords(post, keywords),
+      }));
+
+      let filteredPosts =
         keywords.length > 0
-          ? posts.filter((post) => this.matchesKeywords(post, keywords))
-          : posts;
+          ? postsWithKeywordFlag.filter((post) => post.keywordMatched)
+          : postsWithKeywordFlag;
+
+      if (keywords.length > 0 && filteredPosts.length === 0) {
+        console.log(
+          `[reddit] No posts matched keywords for r/${subreddit}. Relaxing keyword filter.`
+        );
+        filteredPosts = postsWithKeywordFlag;
+      }
 
       console.log(
         `[reddit] Retrieved ${filteredPosts.length} posts from r/${subreddit}`
@@ -343,6 +356,8 @@ class RedditScraper {
       id: redditPost.id,
       title: dynamicTitle,
       content: dynamicContent,
+      originalTitle: redditPost.title,
+      originalContent: redditPost.selftext || "",
       url: `${this.baseUrl}${redditPost.permalink}`,
       author: redditPost.author,
       createdAt: new Date(redditPost.created_utc * 1000),
@@ -544,12 +559,47 @@ class RedditScraper {
    * Check if post matches keywords
    */
   matchesKeywords(post, keywords) {
-    const searchText =
-      `${post.title} ${post.content} ${post.tags.join(" ")}`.toLowerCase();
+    if (!Array.isArray(keywords) || keywords.length === 0) {
+      return true;
+    }
 
-    return keywords.some((keyword) =>
-      searchText.includes(keyword.toLowerCase())
-    );
+    const segments = [
+      post.title,
+      post.content,
+      Array.isArray(post.tags) ? post.tags.join(" ") : "",
+      post.originalTitle,
+      post.originalContent,
+      post.subreddit,
+    ].filter(Boolean);
+
+    if (segments.length === 0) {
+      return false;
+    }
+
+    const searchText = segments.join(" ").toLowerCase();
+
+    return keywords.some((keyword) => {
+      if (!keyword) return false;
+
+      const normalized = keyword.toLowerCase().trim();
+      if (!normalized) return false;
+
+      if (searchText.includes(normalized)) {
+        return true;
+      }
+
+      if (normalized.includes(" ")) {
+        const parts = normalized.split(/\s+/).filter(Boolean);
+        if (parts.length > 0) {
+          const matches = parts.filter((part) => searchText.includes(part));
+          if (matches.length >= Math.ceil(parts.length / 2)) {
+            return true;
+          }
+        }
+      }
+
+      return false;
+    });
   }
 
   /**
