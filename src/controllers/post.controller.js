@@ -18,6 +18,10 @@ const getAllPosts = asyncHandler(async (req, res) => {
     minQualityScore = 0,
   } = req.query;
 
+  const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNumber = Math.max(parseInt(limit, 10) || 10, 1);
+  const skip = (pageNumber - 1) * limitNumber;
+
   const pipeline = [];
 
   // Build match conditions
@@ -62,6 +66,7 @@ const getAllPosts = asyncHandler(async (req, res) => {
       },
     });
   }
+
   if (communityId) {
     pipeline.push({
       $match: {
@@ -70,73 +75,117 @@ const getAllPosts = asyncHandler(async (req, res) => {
     });
   }
 
-  // Lookup community and owner details
+  pipeline.push({
+    $addFields: {
+      totalEngagement: {
+        $add: [
+          { $ifNull: ["$localEngagement.likes", 0] },
+          { $ifNull: ["$localEngagement.comments", 0] },
+          { $ifNull: ["$localEngagement.bookmarks", 0] },
+        ],
+      },
+    },
+  });
+
+  const sortField =
+    typeof sortBy === "string" && sortBy.trim().length
+      ? sortBy.trim()
+      : "createdAt";
+  const sortOrder = sortType === "asc" ? 1 : -1;
+  pipeline.push({ $sort: { [sortField]: sortOrder } });
+
+  pipeline.push({
+    $facet: {
+      data: [
+        { $skip: skip },
+        { $limit: limitNumber },
+        {
+          $lookup: {
+            from: "communities",
+            localField: "community",
+            foreignField: "_id",
+            as: "communityDetails",
+            pipeline: [
+              {
+                $project: {
+                  name: 1,
+                  category: 1,
+                },
+              },
+            ],
+          },
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "owner",
+            foreignField: "_id",
+            as: "ownerDetails",
+            pipeline: [
+              {
+                $project: {
+                  username: 1,
+                  fullName: 1,
+                  avatar: 1,
+                },
+              },
+            ],
+          },
+        },
+        {
+          $addFields: {
+            community: { $first: "$communityDetails" },
+            owner: { $first: "$ownerDetails" },
+          },
+        },
+        {
+          $project: {
+            communityDetails: 0,
+            ownerDetails: 0,
+          },
+        },
+      ],
+      totalCount: [{ $count: "count" }],
+    },
+  });
+
   pipeline.push(
     {
-      $lookup: {
-        from: "communities",
-        localField: "community",
-        foreignField: "_id",
-        as: "communityDetails",
-        pipeline: [
-          {
-            $project: {
-              name: 1,
-              category: 1,
-            },
-          },
-        ],
-      },
-    },
-    {
-      $lookup: {
-        from: "users",
-        localField: "owner",
-        foreignField: "_id",
-        as: "ownerDetails",
-        pipeline: [
-          {
-            $project: {
-              username: 1,
-              fullName: 1,
-              avatar: 1,
-            },
-          },
-        ],
-      },
-    },
-    {
       $addFields: {
-        community: { $first: "$communityDetails" },
-        owner: { $first: "$ownerDetails" },
-        totalEngagement: {
-          $add: [
-            "$localEngagement.likes",
-            "$localEngagement.comments",
-            "$localEngagement.bookmarks",
-          ],
+        docs: "$data",
+        totalDocs: {
+          $ifNull: [{ $first: "$totalCount.count" }, 0],
         },
       },
     },
     {
       $project: {
-        communityDetails: 0,
-        ownerDetails: 0,
+        docs: 1,
+        totalDocs: 1,
       },
     }
   );
 
-  // Sort
-  const sortOrder = sortType === "asc" ? 1 : -1;
-  pipeline.push({ $sort: { [sortBy]: sortOrder } });
+  const aggregateResult = await Post.aggregate(pipeline).allowDiskUse(true);
+  const { docs = [], totalDocs = 0 } = aggregateResult[0] || {};
+  const totalPages =
+    totalDocs > 0 ? Math.ceil(totalDocs / limitNumber) : 0;
+  const hasPrevPage = totalPages > 0 && pageNumber > 1;
+  const hasNextPage = totalPages > 0 && pageNumber < totalPages;
+  const pagingCounter = totalDocs > 0 ? skip + 1 : 0;
 
-  const postAggregate = Post.aggregate(pipeline);
-  const options = {
-    page: parseInt(page, 10),
-    limit: parseInt(limit, 10),
+  const posts = {
+    docs,
+    totalDocs,
+    limit: limitNumber,
+    page: pageNumber,
+    totalPages,
+    pagingCounter,
+    hasPrevPage,
+    hasNextPage,
+    prevPage: hasPrevPage ? pageNumber - 1 : null,
+    nextPage: hasNextPage ? pageNumber + 1 : null,
   };
-
-  const posts = await Post.aggregatePaginate(postAggregate, options);
 
   return res
     .status(200)
