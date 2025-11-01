@@ -149,12 +149,16 @@ const loginUser = asyncHandler(async (req, res) => {
     "-password -refreshToken"
   );
 
-  const options =
-    process.env.NODE_ENV === "production"
-      ? { httpOnly: true, secure: true }
-      : {
-          httpOnly: true,
-        };
+
+  const isProd = process.env.NODE_ENV === "production";
+
+  const options = {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  };
 
   return res
     .status(200)
