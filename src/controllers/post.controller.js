@@ -7,185 +7,161 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 const getAllPosts = asyncHandler(async (req, res) => {
-  const {
-    page = 1,
-    limit = 10,
-    community,
-    platform,
-    sortBy = "createdAt",
-    sortType = "desc",
-    search,
-    minQualityScore = 0,
-  } = req.query;
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      community,
+      platform,
+      sortBy = "createdAt",
+      sortType = "desc",
+      search,
+      minQualityScore = 0,
+    } = req.query;
 
-  const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
-  const limitNumber = Math.max(parseInt(limit, 10) || 10, 1);
-  const skip = (pageNumber - 1) * limitNumber;
+    const pageNumber = Math.max(parseInt(page, 10) || 1, 1);
+    const limitNumber = Math.max(parseInt(limit, 10) || 10, 1);
+    const skip = (pageNumber - 1) * limitNumber;
 
-  const pipeline = [];
+    // Build match conditions
+    const matchConditions = { status: "active" };
 
-  // Build match conditions
-  const matchConditions = { status: "active" };
-
-  if (req.query.authentic !== "false") {
-    matchConditions["scrapingMetadata.isAuthentic"] = true;
-  }
-
-  let communityId = null;
-
-  if (community) {
-    const communityDoc = await Community.findOne({ slug: community });
-    communityId = communityDoc ? communityDoc._id : null;
-  }
-
-  if (platform) {
-    matchConditions.platform = platform;
-  }
-
-  if (minQualityScore > 0) {
-    matchConditions["scrapingMetadata.qualityScore"] = {
-      $gte: parseFloat(minQualityScore),
-    };
-  }
-
-  pipeline.push({ $match: matchConditions });
-
-  // Add search functionality
-  const searchTerm = search?.toString().trim();
-  if (searchTerm) {
-    const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const searchRegex = new RegExp(escapedTerm, "i");
-
-    pipeline.push({
-      $match: {
-        $or: [
-          { title: searchRegex },
-          { content: searchRegex },
-          { "scrapingMetadata.tags": searchRegex },
-        ],
-      },
-    });
-  }
-
-  if (communityId) {
-    pipeline.push({
-      $match: {
-        community: communityId,
-      },
-    });
-  }
-
-  pipeline.push({
-    $addFields: {
-      totalEngagement: {
-        $add: [
-          { $ifNull: ["$localEngagement.likes", 0] },
-          { $ifNull: ["$localEngagement.comments", 0] },
-          { $ifNull: ["$localEngagement.bookmarks", 0] },
-        ],
-      },
-    },
-  });
-
-  const sortField =
-    typeof sortBy === "string" && sortBy.trim().length
-      ? sortBy.trim()
-      : "createdAt";
-  const sortOrder = sortType === "asc" ? 1 : -1;
-  pipeline.push({ $sort: { [sortField]: sortOrder } });
-
-  pipeline.push({
-    $facet: {
-      data: [
-        { $skip: skip },
-        { $limit: limitNumber },
-        {
-          $lookup: {
-            from: "communities",
-            localField: "community",
-            foreignField: "_id",
-            as: "communityDetails",
-            pipeline: [
-              {
-                $project: {
-                  name: 1,
-                  category: 1,
-                },
-              },
-            ],
-          },
-        },
-        {
-          $lookup: {
-            from: "users",
-            localField: "owner",
-            foreignField: "_id",
-            as: "ownerDetails",
-            pipeline: [
-              {
-                $project: {
-                  username: 1,
-                  fullName: 1,
-                  avatar: 1,
-                },
-              },
-            ],
-          },
-        },
-        {
-          $addFields: {
-            community: { $first: "$communityDetails" },
-            owner: { $first: "$ownerDetails" },
-          },
-        },
-        {
-          $project: {
-            communityDetails: 0,
-            ownerDetails: 0,
-          },
-        },
-      ],
-      totalCount: [{ $count: "count" }],
-    },
-  });
-
-  pipeline.push(
-    {
-      $addFields: {
-        docs: "$data",
-        totalDocs: {
-          $ifNull: [{ $first: "$totalCount.count" }, 0],
-        },
-      },
-    },
-    {
-      $project: {
-        docs: 1,
-        totalDocs: 1,
-      },
+    if (req.query.authentic !== "false") {
+      matchConditions["scrapingMetadata.isAuthentic"] = true;
     }
-  );
 
-  const aggregateResult = await Post.aggregate(pipeline).allowDiskUse(true);
-  const { docs = [], totalDocs = 0 } = aggregateResult[0] || {};
-  const totalPages =
-    totalDocs > 0 ? Math.ceil(totalDocs / limitNumber) : 0;
-  const hasPrevPage = totalPages > 0 && pageNumber > 1;
-  const hasNextPage = totalPages > 0 && pageNumber < totalPages;
-  const pagingCounter = totalDocs > 0 ? skip + 1 : 0;
+    let communityId = null;
+    if (community) {
+      const communityDoc = await Community.findOne({ slug: community });
+      if (communityDoc) {
+        communityId = communityDoc._id;
+        matchConditions.community = communityId;
+      } else {
+        // If community is specified but not found, return empty results
+        return res.status(200).json(
+          new ApiResponse(
+            200,
+            {
+              docs: [],
+              totalDocs: 0,
+              limit: limitNumber,
+              page: pageNumber,
+              totalPages: 0,
+              pagingCounter: 0,
+              hasPrevPage: false,
+              hasNextPage: false,
+              prevPage: null,
+              nextPage: null,
+            },
+            "Posts fetched successfully"
+          )
+        );
+      }
+    }
 
-  const posts = {
-    docs,
-    totalDocs,
-    limit: limitNumber,
-    page: pageNumber,
-    totalPages,
-    pagingCounter,
-    hasPrevPage,
-    hasNextPage,
-    prevPage: hasPrevPage ? pageNumber - 1 : null,
-    nextPage: hasNextPage ? pageNumber + 1 : null,
-  };
+    if (platform) {
+      matchConditions.platform = platform;
+    }
+
+    if (minQualityScore > 0) {
+      matchConditions["scrapingMetadata.qualityScore"] = {
+        $gte: parseFloat(minQualityScore),
+      };
+    }
+
+    const searchTerm = search?.toString().trim();
+    if (searchTerm) {
+      const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const searchRegex = new RegExp(escapedTerm, "i");
+      matchConditions.$or = [
+        { title: searchRegex },
+        { content: searchRegex },
+        { "scrapingMetadata.tags": searchRegex },
+      ];
+    }
+
+    const totalDocs = await Post.countDocuments(matchConditions);
+
+    const sortField =
+      typeof sortBy === "string" && sortBy.trim().length
+        ? sortBy.trim()
+        : "createdAt";
+    const sortOrder = sortType === "asc" ? 1 : -1;
+
+    const postsPipeline = [
+      { $match: matchConditions },
+      { $sort: { [sortField]: sortOrder } },
+      { $skip: skip },
+      { $limit: limitNumber },
+      {
+        $lookup: {
+          from: "communities",
+          localField: "community",
+          foreignField: "_id",
+          as: "communityDetails",
+          pipeline: [{ $project: { name: 1, category: 1 } }],
+        },
+      },
+      {
+        $lookup: {
+          from: "users",
+          localField: "owner",
+          foreignField: "_id",
+          as: "ownerDetails",
+          pipeline: [
+            { $project: { username: 1, fullName: 1, avatar: 1 } },
+          ],
+        },
+      },
+      {
+        $addFields: {
+          community: { $first: "$communityDetails" },
+          owner: { $first: "$ownerDetails" },
+          totalEngagement: {
+            $add: [
+              { $ifNull: ["$localEngagement.likes", 0] },
+              { $ifNull: ["$localEngagement.comments", 0] },
+              { $ifNull: ["$localEngagement.bookmarks", 0] },
+            ],
+          },
+        },
+      },
+      { $project: { communityDetails: 0, ownerDetails: 0 } },
+    ];
+
+    const docs = await Post.aggregate(postsPipeline).allowDiskUse(true);
+
+    const totalPages = totalDocs > 0 ? Math.ceil(totalDocs / limitNumber) : 0;
+    const hasPrevPage = totalPages > 0 && pageNumber > 1;
+    const hasNextPage = totalPages > 0 && pageNumber < totalPages;
+    const pagingCounter = totalDocs > 0 ? skip + 1 : 0;
+
+    const posts = {
+      docs,
+      totalDocs,
+      limit: limitNumber,
+      page: pageNumber,
+      totalPages,
+      pagingCounter,
+      hasPrevPage,
+      hasNextPage,
+      prevPage: hasPrevPage ? pageNumber - 1 : null,
+      nextPage: hasNextPage ? pageNumber + 1 : null,
+    };
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, posts, "Posts fetched successfully"));
+  } catch (error) {
+    // Log the error for debugging purposes
+    console.error("Error in getAllPosts:", error);
+
+    // Send a structured error response
+    return res.status(error.statusCode || 500).json({
+      message: error.message || "An unexpected error occurred.",
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
 
   return res
     .status(200)
