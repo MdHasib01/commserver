@@ -82,14 +82,46 @@ const getAllPosts = asyncHandler(async (req, res) => {
 
     const totalDocs = await Post.countDocuments(matchConditions);
 
-    const sortField =
+    // Optimize sort for large collections: prefer index-backed fields
+    const allowedIndexSorts = [
+      "createdAt",
+      "scrapingMetadata.scrapedAt",
+      "scrapingMetadata.qualityScore",
+    ];
+    const requestedSort =
       typeof sortBy === "string" && sortBy.trim().length
         ? sortBy.trim()
         : "createdAt";
     const sortOrder = sortType === "asc" ? 1 : -1;
 
+    const maxComputedSortDocs = 50000; // Avoid computed-field sorts when too many docs
+    const useComputedEngagementSort =
+      requestedSort === "totalEngagement" && totalDocs <= maxComputedSortDocs;
+
+    const sortField = allowedIndexSorts.includes(requestedSort)
+      ? requestedSort
+      : useComputedEngagementSort
+      ? "totalEngagement"
+      : "createdAt";
+
     const postsPipeline = [
       { $match: matchConditions },
+      // Only compute engagement before sort when explicitly requested and safe
+      ...(useComputedEngagementSort
+        ? [
+            {
+              $addFields: {
+                totalEngagement: {
+                  $add: [
+                    { $ifNull: ["$localEngagement.likes", 0] },
+                    { $ifNull: ["$localEngagement.comments", 0] },
+                    { $ifNull: ["$localEngagement.bookmarks", 0] },
+                  ],
+                },
+              },
+            },
+          ]
+        : []),
       { $sort: { [sortField]: sortOrder } },
       { $skip: skip },
       { $limit: limitNumber },
@@ -117,6 +149,7 @@ const getAllPosts = asyncHandler(async (req, res) => {
         $addFields: {
           community: { $first: "$communityDetails" },
           owner: { $first: "$ownerDetails" },
+          // Compute engagement for response; sort already handled above when needed
           totalEngagement: {
             $add: [
               { $ifNull: ["$localEngagement.likes", 0] },
