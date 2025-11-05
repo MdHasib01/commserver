@@ -15,6 +15,7 @@ import {
   getMyProfile,
   getUserProfileById,
   verifyOTP,
+  testGoogleSheetsConnection,
 } from "../controllers/user.controller.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
@@ -37,6 +38,9 @@ router.route("/register").post(
 
 //public routes
 router.route("/verify-otp").post(verifyOTP);
+
+// Diagnostic route to test Google Sheets integration (requires auth)
+router.route("/test-sheets").get(verifyJWT, testGoogleSheetsConnection);
 
 router.route("/login").post(loginUser);
 

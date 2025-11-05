@@ -7,6 +7,7 @@ import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import emailService from "../services/emailService.js";
 import { Otp } from "../models/otp.model.js";
+import { GoogleSheetsServices } from "../services/googleSheets.service.js";
 
 const generateAccessAndRefereshTokens = async (userId) => {
   try {
@@ -233,9 +234,132 @@ const verifyOTP = asyncHandler(async (req, res) => {
     },
   });
 
+  // Helper: simple retry with delays
+  const retry = async (fn, attempts = 3, delayMs = 1500) => {
+    let lastErr;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        console.error(`Operation failed (attempt ${i + 1}/${attempts}):`, err?.message || err);
+        if (i < attempts - 1) {
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
+      }
+    }
+    throw lastErr;
+  };
+
+  // Prepare email recipients from env (comma-separated)
+  const recipientCsv = process.env.NEW_ACCOUNT_NOTIFICATION_RECIPIENTS || "";
+  const recipients = recipientCsv
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s);
+
+  // Build template payload
+  const nowIso = new Date().toISOString();
+  const portalUrl = process.env.COMMUNITY_PORTAL_URL || "https://earncore.community";
+
+  // Capture IP address
+  const ipAddress =
+    (req.headers["x-forwarded-for"]?.split(",")[0] || "").trim() || req.ip || "";
+
+  // 1) Send admin-only notification email (do not email the user)
+  let emailError = null;
+  try {
+    if (recipients.length) {
+      await retry(() =>
+        emailService.sendEmail(
+          recipients,
+          "admin_new_user",
+          {
+            fullName: user.fullName,
+            email: user.email,
+            username: user.username,
+            communityName: "Earn Core Community",
+            registeredAt: nowIso,
+            portalUrl,
+          },
+          `New user joined: ${user.username || user.email}`,
+          process.env.DEFAULT_FROM_EMAIL,
+          null,
+          null
+        )
+      );
+      console.log("✅ Admins notified about new user join");
+    } else {
+      console.warn("⚠️ No admin recipients configured; skipping admin notification");
+    }
+  } catch (err) {
+    emailError = err;
+    console.error("❌ Failed to send admin notification after retries:", err?.message || err);
+  }
+
+  // 2) Log subscriber in Google Sheets
+  let sheetError = null;
+  try {
+    await retry(() =>
+      GoogleSheetsServices.addSubscriber({
+        email: user.email,
+        subscribedAt: nowIso,
+        source: "Earn Core Community Registration",
+        ipAddress,
+      })
+    );
+    console.log("✅ Subscriber added to Google Sheets");
+  } catch (err) {
+    sheetError = err;
+    console.error("❌ Failed to add subscriber to Google Sheets after retries:", err?.message || err);
+  }
+
+  // 3) Notify administrators if persistent failures occur
+  if (emailError || sheetError) {
+    const adminCsv = process.env.ADMIN_ALERT_EMAILS || recipientCsv;
+    const adminRecipients = adminCsv
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s);
+    if (adminRecipients.length) {
+      try {
+        await emailService.sendPlainEmail(
+          adminRecipients,
+          "[Alert] Registration post-verify operation failures",
+          `User: ${user.email}\nVerified: ${nowIso}\nIP: ${ipAddress}\nEmailError: ${emailError?.message || "none"}\nSheetsError: ${sheetError?.message || "none"}`,
+          process.env.DEFAULT_FROM_EMAIL
+        );
+        console.warn("⚠️ Admins notified about persistent failures");
+      } catch (notifyErr) {
+        console.error("❌ Failed to notify admins:", notifyErr?.message || notifyErr);
+      }
+    }
+  }
+
   return res
     .status(200)
     .json(new ApiResponse(200, {}, "Email verified successfully"));
+});
+
+// Simple diagnostic to check Google Sheets connectivity and configuration
+const testGoogleSheetsConnection = asyncHandler(async (req, res) => {
+  try {
+    const result = await GoogleSheetsServices.testConnection();
+
+    // Include a quick echo of env presence without exposing sensitive values
+    const envStatus = {
+      GOOGLE_SHEETS_ID: !!process.env.GOOGLE_SHEETS_ID,
+      GOOGLE_SHEETS_NAME: !!process.env.GOOGLE_SHEETS_NAME,
+      GOOGLE_CLIENT_EMAIL: !!process.env.GOOGLE_CLIENT_EMAIL,
+      GOOGLE_PRIVATE_KEY: !!process.env.GOOGLE_PRIVATE_KEY,
+    };
+
+    return res.status(200).json(
+      new ApiResponse(200, { result, envStatus }, "Sheets connectivity check executed")
+    );
+  } catch (error) {
+    throw new ApiError(500, error?.message || "Sheets connectivity check failed");
+  }
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -870,4 +994,6 @@ export {
   getMyProfile,
   getUserProfileById,
   verifyOTP,
+  // Diagnostic: test Google Sheets connectivity
+  testGoogleSheetsConnection,
 };

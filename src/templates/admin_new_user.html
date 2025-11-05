@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Notification — New User Joined</title>
+    <style>
+      body {
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        background-color: #f8f9fb;
+        color: #333333;
+        margin: 0;
+        padding: 0;
+      }
+      .container {
+        max-width: 640px;
+        margin: 40px auto;
+        background-color: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        overflow: hidden;
+      }
+      .header {
+        background-color: #ff7a00;
+        color: #ffffff;
+        text-align: center;
+        padding: 20px;
+        font-size: 20px;
+        font-weight: bold;
+      }
+      .content {
+        padding: 24px 28px;
+      }
+      .details {
+        background: #fff3e6;
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 12px;
+      }
+      .details p {
+        margin: 8px 0;
+      }
+      .footer {
+        text-align: center;
+        font-size: 12px;
+        color: #888888;
+        padding: 16px;
+        border-top: 1px solid #f0f0f0;
+      }
+      .brand {
+        font-weight: bold;
+        color: #ff7a00;
+      }
+      .cta {
+        display: inline-block;
+        margin-top: 16px;
+        padding: 10px 16px;
+        background: #ff7a00;
+        color: #fff;
+        border-radius: 6px;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">A New User Joined</div>
+      <div class="content">
+        <p>Hello Admin,</p>
+        <p>
+          A new user has joined <span class="brand">{{communityName}}</span>.
+          Here are the details:
+        </p>
+
+        <div class="details">
+          <p><strong>Name:</strong> {{fullName}}</p>
+          <p><strong>Username:</strong> {{username}}</p>
+          <p><strong>Email:</strong> {{email}}</p>
+          <p><strong>Registered At:</strong> {{registeredAt}}</p>
+        </div>
+
+        <p>
+          You can review the profile and manage the account from the
+          community portal.
+        </p>
+        <p>
+          <a class="cta" href="{{portalUrl}}" target="_blank">Open Portal</a>
+        </p>
+      </div>
+      <div class="footer">&copy; 2025 Earn Core Community. All rights reserved.</div>
+    </div>
+  </body>
+</html>
