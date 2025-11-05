@@ -5,6 +5,7 @@ import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { Notification } from "../models/notification.model.js";
 
 const getAllPosts = asyncHandler(async (req, res) => {
   try {
@@ -350,6 +351,24 @@ const createPost = asyncHandler(async (req, res) => {
   await Community.findByIdAndUpdate(communityDoc._id, {
     $inc: { postCount: 1 },
   });
+
+  // Create a notification when a real user creates a post
+  if (req.user?.userType === "real") {
+    try {
+      await Notification.create({
+        title: postPayload.title,
+        email: postingUser.email,
+        username: postingUser.username,
+        fullName: postingUser.fullName,
+        status: "unread",
+        user: req.user._id,
+        post: createdPost._id,
+      });
+    } catch (e) {
+      // Non-blocking: log but don't fail post creation on notification error
+      console.error("Failed to create notification for post:", e?.message || e);
+    }
+  }
 
   const populatedPost = await Post.findById(createdPost._id)
     .populate({

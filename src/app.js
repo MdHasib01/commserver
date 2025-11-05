@@ -31,6 +31,7 @@ import communityRouter from "./routes/community.routes.js";
 import userScraperRouter from "./routes/userScraper.routes.js";
 import userGenerationRouter from "./routes/userGeneration.routes.js";
 import autoLikeRouter from "./routes/autoLike.routes.js";
+import notificationRouter from "./routes/notification.routes.js";
 import { seedUsers } from "./data/seedUsers.js";
 
 app.get("/api/v1/seed", seedDatabase);
@@ -45,5 +46,6 @@ app.use("/api/v1/community", communityRouter);
 app.use("/api/v1/user-scraper", userScraperRouter);
 app.use("/api/v1/generate-user", userGenerationRouter);
 app.use("/api/v1/auto-like", autoLikeRouter);
+app.use("/api/v1/notifications", notificationRouter);
 
 export { app };
