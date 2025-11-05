@@ -142,6 +142,12 @@ const loginUser = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Invalid user credentials");
   }
 
+  // Ensure a default role for users without a role
+  if (!user.role) {
+    user.role = "user";
+    await user.save({ validateBeforeSave: false });
+  }
+
   const { accessToken, refreshToken } = await generateAccessAndRefereshTokens(
     user._id
   );

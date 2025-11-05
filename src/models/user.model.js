@@ -38,6 +38,12 @@ const userSchema = new Schema(
       default: "real",
       index: true,
     },
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+      index: true,
+    },
     watchHistory: [
       {
         type: Schema.Types.ObjectId,
