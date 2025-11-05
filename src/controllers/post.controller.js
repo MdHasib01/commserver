@@ -102,8 +102,8 @@ const getAllPosts = asyncHandler(async (req, res) => {
     const sortField = allowedIndexSorts.includes(requestedSort)
       ? requestedSort
       : useComputedEngagementSort
-      ? "totalEngagement"
-      : "createdAt";
+        ? "totalEngagement"
+        : "createdAt";
 
     const postsPipeline = [
       { $match: matchConditions },
@@ -141,9 +141,7 @@ const getAllPosts = asyncHandler(async (req, res) => {
           localField: "owner",
           foreignField: "_id",
           as: "ownerDetails",
-          pipeline: [
-            { $project: { username: 1, fullName: 1, avatar: 1 } },
-          ],
+          pipeline: [{ $project: { username: 1, fullName: 1, avatar: 1 } }],
         },
       },
       {
@@ -270,8 +268,7 @@ const createPost = asyncHandler(async (req, res) => {
   const resolvedOriginalId =
     originalId?.toString().trim() || `manual_${manualId}`;
   const resolvedSourceUrl =
-    sourceUrl?.toString().trim() ||
-    `manual://${resolvedPlatform}/${manualId}`;
+    sourceUrl?.toString().trim() || `manual://${resolvedPlatform}/${manualId}`;
 
   const [existingBySource, existingByOriginal] = await Promise.all([
     Post.findOne({ sourceUrl: resolvedSourceUrl }),
@@ -333,9 +330,10 @@ const createPost = asyncHandler(async (req, res) => {
     originalId: resolvedOriginalId,
     community: communityDoc._id,
     owner: req.user._id,
-    status: status && ["active", "hidden", "flagged", "deleted"].includes(status)
-      ? status
-      : "active",
+    status:
+      status && ["active", "hidden", "flagged", "deleted"].includes(status)
+        ? status
+        : "active",
     thumbnail: thumbnail?.toString().trim() || undefined,
     scrapingMetadata: metadataPayload,
   };
@@ -382,9 +380,7 @@ const createPost = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .json(
-      new ApiResponse(201, populatedPost, "Post created successfully")
-    );
+    .json(new ApiResponse(201, populatedPost, "Post created successfully"));
 });
 
 const getPostById = asyncHandler(async (req, res) => {
@@ -411,6 +407,7 @@ const getPostById = asyncHandler(async (req, res) => {
           {
             $project: {
               name: 1,
+              slug: 1,
               category: 1,
               description: 1,
             },
@@ -899,6 +896,101 @@ const getPostByUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, posts, "Posts from user fetched successfully"));
 });
 
+// Fetch posts created by users with userType = "real"
+const getRealUserPosts = asyncHandler(async (req, res) => {
+  const {
+    page = 1,
+    limit = 10,
+    sortBy = "createdAt",
+    sortType = "desc",
+  } = req.query;
+
+  const pipeline = [
+    {
+      $match: {
+        status: "active",
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "owner",
+        foreignField: "_id",
+        as: "ownerDetails",
+        pipeline: [
+          {
+            $project: {
+              username: 1,
+              fullName: 1,
+              avatar: 1,
+              userType: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $addFields: {
+        owner: { $first: "$ownerDetails" },
+      },
+    },
+    {
+      $match: {
+        "owner.userType": "real",
+      },
+    },
+    {
+      $lookup: {
+        from: "communities",
+        localField: "community",
+        foreignField: "_id",
+        as: "communityDetails",
+        pipeline: [
+          {
+            $project: {
+              name: 1,
+              category: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $addFields: {
+        community: { $first: "$communityDetails" },
+        totalEngagement: {
+          $add: [
+            "$localEngagement.likes",
+            "$localEngagement.comments",
+            "$localEngagement.bookmarks",
+          ],
+        },
+      },
+    },
+    {
+      $project: {
+        communityDetails: 0,
+        ownerDetails: 0,
+      },
+    },
+  ];
+
+  const sortOrder = sortType === "asc" ? 1 : -1;
+  pipeline.push({ $sort: { [sortBy]: sortOrder } });
+
+  const postAggregate = Post.aggregate(pipeline);
+  const options = {
+    page: parseInt(page, 10),
+    limit: parseInt(limit, 10),
+  };
+
+  const posts = await Post.aggregatePaginate(postAggregate, options);
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, posts, "Real user posts fetched successfully"));
+});
+
 export {
   getAllPosts,
   createPost,
@@ -909,4 +1001,5 @@ export {
   getPostsByPlatform,
   getPostStats,
   getPostByUser,
+  getRealUserPosts,
 };

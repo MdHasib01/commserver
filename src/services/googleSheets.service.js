@@ -100,7 +100,7 @@ class GoogleSheetsService {
           valueInputOption: "RAW",
           resource: {
             // Add IP Address column and keep Status at column E
-            values: [["Email", "Created At", "Source", "IP Address", "Status"]],
+            values: [["Email", "Created At", "Status"]],
           },
         });
         console.log("✅ Headers initialized");
@@ -125,9 +125,7 @@ class GoogleSheetsService {
         [
           subscriberData.email,
           // Expect ISO timestamp string per requirement
-          subscriberData.subscribedAt,
-          subscriberData.source || "website",
-          subscriberData.ipAddress || "",
+          new Date(subscriberData.subscribedAt).toDateString(),
           "Active",
         ],
       ];
