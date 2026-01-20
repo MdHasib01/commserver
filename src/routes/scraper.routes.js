@@ -6,7 +6,11 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 
 const router = Router();
-const scraperManager = new ScraperManager();
+let scraperManager;
+const getScraperManager = () => {
+  if (!scraperManager) scraperManager = new ScraperManager();
+  return scraperManager;
+};
 
 // All scraper routes require authentication
 // router.use(verifyJWT);
@@ -18,7 +22,7 @@ router.get(
   "/scrape-all",
   asyncHandler(async (req, res) => {
     try {
-      const results = await scraperManager.scrapeAllCommunities();
+      const results = await getScraperManager().scrapeAllCommunities();
 
       return res
         .status(200)
@@ -44,7 +48,7 @@ router.get(
     const { communityId } = req.params;
 
     try {
-      const result = await scraperManager.scrapeCommunity(communityId);
+      const result = await getScraperManager().scrapeCommunity(communityId);
 
       return res
         .status(200)
@@ -62,7 +66,7 @@ router.get(
   "/stats",
   asyncHandler(async (req, res) => {
     try {
-      const stats = await scraperManager.getScrapingStats();
+      const stats = await getScraperManager().getScrapingStats();
 
       return res
         .status(200)
@@ -91,7 +95,7 @@ router.post(
     } = req.body;
 
     try {
-      const result = await scraperManager.cleanupPosts({
+      const result = await getScraperManager().cleanupPosts({
         olderThanDays,
         minQualityScore,
         maxPostsPerCommunity,
@@ -125,7 +129,7 @@ router.post(
     }
 
     try {
-      const scraper = scraperManager.scrapers[platform];
+      const scraper = getScraperManager().scrapers[platform];
       const testResults = await scraper.scrapeContent({
         sourceUrl,
         keywords,

@@ -28,3 +28,28 @@ export const verifyJWT = asyncHandler(async(req, _, next) => {
     }
     
 })
+
+export const verifyJWTOptional = asyncHandler(async (req, _res, next) => {
+  const token =
+    req.cookies?.accessToken || req.header("Authorization")?.replace("Bearer ", "");
+  if (!token) return next();
+
+  try {
+    const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+    const user = await User.findById(decodedToken?._id).select("-password -refreshToken");
+    if (!user) {
+      throw new ApiError(401, "Invalid Access Token");
+    }
+    req.user = user;
+    return next();
+  } catch (error) {
+    throw new ApiError(401, error?.message || "Invalid access token");
+  }
+});
+
+export const requireAdmin = (req, _res, next) => {
+  if (req.user?.role !== "admin") {
+    return next(new ApiError(403, "Forbidden"));
+  }
+  return next();
+};
